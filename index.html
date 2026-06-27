@@ -1,182 +1,675 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-  <meta charset="UTF-8">F
-  <title>Dashboard Inkubator A & B</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Inkubator Penetas Tukik</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f6f8fa;
-      color: #333;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 20px;
-      padding: 20px;
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    :root {
+      --bg:        #0e1117;
+      --surface:   #161b26;
+      --surface2:  #1e2535;
+      --border:    #2a3347;
+      --accent:    #00c4a0;
+      --accent2:   #3d9bff;
+      --warn:      #f59e0b;
+      --danger:    #ef4444;
+      --text:      #e2e8f0;
+      --muted:     #7c8fa6;
+      --on:        #00c4a0;
+      --off:       #2a3347;
+      --radius:    12px;
+      --mono:      'JetBrains Mono', monospace;
     }
-    h1 {
-      color: #2c3e50;
-      text-align: center;
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── HEADER ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 32px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    header .logo {
+      width: 38px; height: 38px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: grid; place-items: center;
+      font-size: 18px;
+    }
+    header h1 { font-size: 18px; font-weight: 600; letter-spacing: -.3px; }
+    header .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .spacer { flex: 1; }
+    #conn-badge {
+      font-size: 12px; font-weight: 500;
+      padding: 5px 12px; border-radius: 99px;
+      background: #1a2e25; color: var(--accent);
+      border: 1px solid #1f4a38;
+      display: flex; align-items: center; gap: 6px;
+    }
+    #conn-badge::before {
+      content: '';
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--accent);
+      animation: blink 2s infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* ── MAIN ── */
+    main { padding: 28px 32px; max-width: 1280px; margin: 0 auto; }
+
+    /* ── LIVE CARDS ── */
+    .cards-row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 32px;
     }
     .card {
-      background: white;
-      border-radius: 12px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-      padding: 20px;
-      width: 340px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 22px; position: relative; overflow: hidden;
     }
-    .title {
-      font-size: 20px;
-      font-weight: bold;
-      margin-bottom: 10px;
-      text-align: center;
-      color: #0077cc;
+    .card::before {
+      content:''; position:absolute; top:0; left:0; right:0; height:3px;
     }
-    .data {
-      font-size: 16px;
-      margin: 6px 0;
+    .card-a::before { background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+    .card-b::before { background: linear-gradient(90deg, var(--accent2), #a855f7); }
+
+    .card-header { display:flex; align-items:center; gap:10px; margin-bottom:18px; }
+    .card-title { font-size:15px; font-weight:600; }
+    .card-dot { width:8px;height:8px;border-radius:50%; background:var(--accent); }
+    .card-b .card-dot { background: var(--accent2); }
+
+    .metrics { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px; }
+    .metric { background:var(--surface2); border-radius:8px; padding:12px 14px; }
+    .metric-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; margin-bottom:4px; }
+    .metric-value { font-family:var(--mono); font-size:24px; font-weight:500; }
+    .metric-unit { font-size:12px; color:var(--muted); margin-left:3px; }
+
+    .relays { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+    .relay-pill {
+      border-radius:8px; padding:7px 6px; text-align:center;
+      font-size:11px; font-weight:600; letter-spacing:.3px;
+      border: 1px solid transparent; transition: all .3s;
     }
-    .relay {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-top: 12px;
+    .relay-pill.on  { background:#0d2e25; border-color:var(--on); color:var(--on); }
+    .relay-pill.off { background:var(--surface2); border-color:var(--border); color:var(--muted); }
+
+    .card-footer { margin-top:12px; font-size:11px; color:var(--muted); text-align:right; }
+
+    /* ── SECTION TITLE ── */
+    .section-head {
+      display:flex; align-items:center; gap:12px; margin-bottom:18px; flex-wrap:wrap;
     }
-    .relay button {
-      border: none;
-      border-radius: 8px;
-      padding: 10px 0;
-      font-size: 15px;
-      font-weight: bold;
-      color: white;
-      cursor: pointer;
-      transition: background 0.3s ease;
+    .section-title { font-size:16px; font-weight:600; }
+    .section-sub { font-size:12px; color:var(--muted); }
+
+    /* ── FILTER BAR ── */
+    .filter-bar {
+      display:flex; gap:10px; margin-left:auto; flex-wrap:wrap; align-items:center;
     }
-    .on {
-      background: #007bff;
+    .filter-bar label { font-size:12px; color:var(--muted); white-space:nowrap; }
+    .filter-bar select, .filter-bar input {
+      background:var(--surface2); border:1px solid var(--border);
+      color:var(--text); border-radius:8px; padding:7px 12px;
+      font-size:13px; font-family:inherit; outline:none; cursor:pointer;
     }
-    .off {
-      background: #b0b0b0;
+    .filter-bar select:focus, .filter-bar input:focus { border-color:var(--accent); }
+
+    .btn {
+      padding:8px 16px; border-radius:8px; border:none; cursor:pointer;
+      font-size:13px; font-weight:500; font-family:inherit; transition: all .2s;
     }
-    .update-time {
-      text-align: center;
-      font-size: 13px;
-      color: #555;
-      margin-top: 10px;
-      font-style: italic;
+    .btn-primary { background:var(--accent); color:#0a1f1a; }
+    .btn-primary:hover { background:#00e0b8; }
+    .btn-outline { background:transparent; border:1px solid var(--border); color:var(--text); }
+    .btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+    .btn-excel { background:#1a6b3c; color:#e2e8f0; }
+    .btn-excel:hover { background:#1f8048; }
+
+    /* ── INTERVAL TOGGLE ── */
+    .interval-toggle {
+      display:flex; align-items:center; gap:0;
+      background:var(--surface2); border:1px solid var(--border); border-radius:8px;
+      overflow:hidden;
+    }
+    .itv-btn {
+      padding:7px 13px; border:none; background:transparent;
+      color:var(--muted); font-size:12px; font-weight:500;
+      cursor:pointer; font-family:inherit; transition:all .2s;
+      white-space:nowrap;
+    }
+    .itv-btn:not(:last-child) { border-right:1px solid var(--border); }
+    .itv-btn.active {
+      background:var(--accent); color:#0a1f1a;
+    }
+    .itv-btn:hover:not(.active) { color:var(--text); background:var(--border); }
+
+    /* ── SLOT BADGE ── */
+    .slot-label {
+      display:inline-block; font-size:10px; font-weight:600;
+      background:#1a3a2e; color:var(--accent); border:1px solid #1f5a44;
+      border-radius:4px; padding:1px 6px; margin-left:6px;
+      vertical-align:middle; letter-spacing:.4px;
+    }
+
+    /* ── TAB ── */
+    .tabs { display:flex; gap:4px; background:var(--surface2); padding:4px; border-radius:10px; width:fit-content; margin-bottom:20px; }
+    .tab {
+      padding:7px 18px; border-radius:7px; font-size:13px; font-weight:500; cursor:pointer;
+      border:none; background:transparent; color:var(--muted); transition: all .2s; font-family:inherit;
+    }
+    .tab.active { background:var(--surface); color:var(--text); box-shadow:0 1px 4px rgba(0,0,0,.4); }
+
+    /* ── TABLE ── */
+    .table-wrap { overflow-x:auto; border-radius:var(--radius); border:1px solid var(--border); }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    thead tr { background:var(--surface2); }
+    th {
+      padding:11px 14px; text-align:left; font-weight:600; font-size:11px;
+      text-transform:uppercase; letter-spacing:.5px; color:var(--muted);
+      white-space:nowrap; border-bottom:1px solid var(--border);
+    }
+    td {
+      padding:11px 14px; border-bottom:1px solid var(--border);
+      font-family:var(--mono); font-size:12px; white-space:nowrap;
+    }
+    tbody tr:last-child td { border-bottom:none; }
+    tbody tr:hover td { background:var(--surface2); }
+
+    .badge {
+      display:inline-block; padding:2px 8px; border-radius:99px;
+      font-size:11px; font-weight:600;
+    }
+    .badge-on  { background:#0d2e25; color:var(--on);   border:1px solid #1a5a3a; }
+    .badge-off { background:var(--off); color:var(--muted); border:1px solid var(--border); }
+
+    .empty-state {
+      text-align:center; padding:48px; color:var(--muted);
+    }
+    .empty-state .icon { font-size:36px; margin-bottom:10px; }
+    .empty-state p { font-size:14px; }
+
+    #loading {
+      display:none; text-align:center; padding:32px; color:var(--muted);
+      font-size:13px; letter-spacing:.3px;
+    }
+    .spinner {
+      width:24px; height:24px; border:2px solid var(--border);
+      border-top-color:var(--accent); border-radius:50%;
+      animation:spin .8s linear infinite; margin:0 auto 12px;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* ── SUMMARY CHIPS ── */
+    .summary-row { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+    .chip {
+      background:var(--surface2); border:1px solid var(--border);
+      border-radius:8px; padding:8px 14px; font-size:12px;
+    }
+    .chip strong { color:var(--accent); font-family:var(--mono); }
+
+    @media (max-width: 768px) {
+      main { padding:16px; }
+      .cards-row { grid-template-columns:1fr; }
+      .relays { grid-template-columns:repeat(2,1fr); }
+      header { padding:14px 16px; }
     }
   </style>
+</head>
+<body>
 
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
-    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-database.js";
+<header>
+  <div class="logo">🐢</div>
+  <div>
+    <h1>Inkubator Penetas Tukik</h1>
+    <div class="sub">Sistem Monitoring IoT Real-time</div>
+  </div>
+  <div class="spacer"></div>
+  <div id="conn-badge">Terhubung</div>
+</header>
 
-    // 🔹 KONFIGURASI FIREBASE
-    const firebaseConfig = {
-  apiKey: "AIzaSyAnY7-nTOG8qv9MmzHNgD3Y-WFUfp0bTdI",
-  authDomain: "penetastukik-c4242.firebaseapp.com",
-  databaseURL: "https://penetastukik-c4242-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "penetastukik-c4242",
-  storageBucket: "penetastukik-c4242.firebasestorage.app",
+<main>
+
+  <!-- ── LIVE STATUS ── -->
+  <div class="cards-row">
+    <!-- Inkubator A -->
+    <div class="card card-a">
+      <div class="card-header">
+        <div class="card-dot"></div>
+        <span class="card-title">Inkubator A</span>
+        <span style="font-size:11px;color:var(--muted);margin-left:auto;">LIVE</span>
+      </div>
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-label">Suhu</div>
+          <div class="metric-value"><span id="suhuA">--</span><span class="metric-unit">°C</span></div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Kelembapan</div>
+          <div class="metric-value"><span id="kelembapanA">--</span><span class="metric-unit">%</span></div>
+        </div>
+      </div>
+      <div class="relays">
+        <div class="relay-pill off" id="lampuA">Lampu</div>
+        <div class="relay-pill off" id="pompaA">Pompa</div>
+        <div class="relay-pill off" id="peltierA">Peltier</div>
+        <div class="relay-pill off" id="fanA">Fan</div>
+      </div>
+      <div class="card-footer">Diperbarui: <span id="lastUpdateA">--</span></div>
+    </div>
+
+    <!-- Inkubator B -->
+    <div class="card card-b">
+      <div class="card-header">
+        <div class="card-dot"></div>
+        <span class="card-title">Inkubator B</span>
+        <span style="font-size:11px;color:var(--muted);margin-left:auto;">LIVE</span>
+      </div>
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-label">Suhu</div>
+          <div class="metric-value"><span id="suhuB">--</span><span class="metric-unit">°C</span></div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Kelembapan</div>
+          <div class="metric-value"><span id="kelembapanB">--</span><span class="metric-unit">%</span></div>
+        </div>
+      </div>
+      <div class="relays">
+        <div class="relay-pill off" id="lampuB">Lampu</div>
+        <div class="relay-pill off" id="pompaB">Pompa</div>
+        <div class="relay-pill off" id="peltierB">Peltier</div>
+        <div class="relay-pill off" id="fanB">Fan</div>
+      </div>
+      <div class="card-footer">Diperbarui: <span id="lastUpdateB">--</span></div>
+    </div>
+  </div>
+
+  <!-- ── HISTORI ── -->
+  <div class="section-head">
+    <div>
+      <div class="section-title">Riwayat Data</div>
+      <div class="section-sub" id="sectionSub">Menampilkan semua data</div>
+    </div>
+    <div class="filter-bar">
+      <!-- Interval sampling -->
+      <div class="interval-toggle">
+        <button class="itv-btn active" onclick="setInterval_('all',  this)">Semua</button>
+        <button class="itv-btn"        onclick="setInterval_(30,    this)">30 Menit</button>
+        <button class="itv-btn"        onclick="setInterval_(60,    this)">1 Jam</button>
+        <button class="itv-btn"        onclick="setInterval_(360,   this)">6 Jam</button>
+        <button class="itv-btn"        onclick="setInterval_(1440,  this)">1 Hari</button>
+      </div>
+      <label>Dari</label>
+      <input type="datetime-local" id="filterFrom">
+      <label>Sampai</label>
+      <input type="datetime-local" id="filterTo">
+      <button class="btn btn-primary" onclick="applyFilter()">Terapkan</button>
+      <button class="btn btn-outline" onclick="resetFilter()">Reset</button>
+      <button class="btn btn-excel" onclick="exportExcel()">⬇ Excel</button>
+    </div>
+  </div>
+
+  <!-- Tabs A / B -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('A', this)">Inkubator A</button>
+    <button class="tab" onclick="switchTab('B', this)">Inkubator B</button>
+  </div>
+
+  <!-- Ringkasan -->
+  <div class="summary-row" id="summaryRow" style="display:none">
+    <div class="chip">Total: <strong id="sumTotal">0</strong> catatan</div>
+    <div class="chip">Suhu rata-rata: <strong id="sumSuhu">--</strong> °C</div>
+    <div class="chip">Kelembapan rata-rata: <strong id="sumKelembapan">--</strong> %</div>
+    <div class="chip">Rentang waktu: <strong id="sumRange">--</strong></div>
+  </div>
+
+  <div id="loading"><div class="spinner"></div>Memuat data histori…</div>
+
+  <div class="table-wrap" id="tableWrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Waktu</th>
+          <th>Suhu (°C)</th>
+          <th>Kelembapan (%)</th>
+          <th>ADC</th>
+          <th>Lampu</th>
+          <th>Pompa</th>
+          <th id="thCol7">Peltier</th>
+          <th>Fan</th>
+        </tr>
+      </thead>
+      <tbody id="historyBody">
+        <tr><td colspan="9"><div class="empty-state"><div class="icon">📊</div><p>Belum ada data. Pilih rentang waktu dan klik Filter.</p></div></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+<script type="module">
+import { initializeApp }    from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
+import { getDatabase, ref, onValue, query, orderByKey, limitToLast }
+                            from "https://www.gstatic.com/firebasejs/10.11.0/firebase-database.js";
+
+/* ── CONFIG ── */
+const firebaseConfig = {
+  apiKey:            "AIzaSyAnY7-nTOG8qv9MmzHNgD3Y-WFUfp0bTdI",
+  authDomain:        "penetastukik-c4242.firebaseapp.com",
+  databaseURL:       "https://penetastukik-c4242-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:         "penetastukik-c4242",
+  storageBucket:     "penetastukik-c4242.firebasestorage.app",
   messagingSenderId: "490317997302",
-  appId: "1:490317997302:web:cf3c8d756e7c39cf9df8d7",
-  measurementId: "G-MZTK2W5RJM"
+  appId:             "1:490317997302:web:cf3c8d756e7c39cf9df8d7"
 };
 
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
+const app = initializeApp(firebaseConfig);
+const db  = getDatabase(app);
 
-    // 🔹 Fungsi bantu update nilai
-    function updateValue(id, value, suffix = "") {
-      const el = document.getElementById(id);
-      if (el) el.textContent = value + suffix;
-    }
+/* ── STATE ── */
+let currentTab      = 'A';
+let allRowsA        = [];
+let allRowsB        = [];
+let filteredRows    = [];
+let currentInterval = 'all';   // 'all' | 30 | 60 | 360 | 1440  (dalam menit)
 
-    // 🔹 Fungsi format waktu lokal WIB
-    function formatTimeWIB() {
-      const date = new Date();
-      const formatter = new Intl.DateTimeFormat("id-ID", {
-        timeZone: "Asia/Jakarta",
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
+/* ── LIVE CARD helpers ── */
+function uv(id, val, suf = '') {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val + suf;
+}
+function fmtWIB() {
+  return new Intl.DateTimeFormat('id-ID', {
+    timeZone:'Asia/Jakarta', day:'2-digit', month:'short',
+    year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit'
+  }).format(new Date()) + ' WIB';
+}
+function setRelay(id, state) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'relay-pill ' + (state ? 'on' : 'off');
+}
+
+/* ── LIVE LISTENERS ── */
+onValue(ref(db,'inkubatorA/suhu'),       s => { uv('suhuA', s.val()); uv('lastUpdateA', fmtWIB()); });
+onValue(ref(db,'inkubatorA/kelembapan'), s => uv('kelembapanA', s.val()));
+onValue(ref(db,'inkubatorA/relay/lampu'),   s => setRelay('lampuA',   s.val()));
+onValue(ref(db,'inkubatorA/relay/pompa'),   s => setRelay('pompaA',   s.val()));
+onValue(ref(db,'inkubatorA/relay/peltier'), s => setRelay('peltierA', s.val()));
+onValue(ref(db,'inkubatorA/relay/fan'),     s => setRelay('fanA',     s.val()));
+
+onValue(ref(db,'inkubatorB/suhu'),       s => { uv('suhuB', s.val()); uv('lastUpdateB', fmtWIB()); });
+onValue(ref(db,'inkubatorB/kelembapan'), s => uv('kelembapanB', s.val()));
+onValue(ref(db,'inkubatorB/relay/lampu'),   s => setRelay('lampuB',   s.val()));
+onValue(ref(db,'inkubatorB/relay/pompa'),   s => setRelay('pompaB',   s.val()));
+onValue(ref(db,'inkubatorB/relay/peltier'), s => setRelay('peltierB', s.val()));
+onValue(ref(db,'inkubatorB/relay/fan'),     s => setRelay('fanB',     s.val()));
+
+/* ── LOAD LOG ── */
+function loadLog(inkubator) {
+  showLoading(true);
+  const logRef = query(ref(db, `log${inkubator}`), orderByKey(), limitToLast(2000));
+  onValue(logRef, snap => {
+    const rows = [];
+    if (snap.exists()) {
+      snap.forEach(child => {
+        const d = child.val();
+        rows.push({
+          epoch:       Number(child.key),
+          timestamp:   d.timestamp   || '',
+          suhu:        d.suhu        ?? '',
+          kelembapan:  d.kelembapan  ?? '',
+          adc:         d.adc         ?? '',
+          lampu:       d.lampu       ?? false,
+          pompa:       d.pompa       ?? false,
+          peltier:     d.peltier     ?? false,
+          fan:         d.fan         ?? false
+        });
       });
-      return formatter.format(date) + " WIB";
+      rows.reverse();  // terbaru di atas
+    }
+    if (inkubator === 'A') allRowsA = rows;
+    else                   allRowsB = rows;
+
+    if (inkubator === currentTab) {
+      const sampled = samplingInterval(rows, currentInterval);
+      renderTable(sampled);
+    }
+    showLoading(false);
+  }, { onlyOnce: true });
+}
+
+loadLog('A');
+loadLog('B');
+
+/* ── RENDER TABLE ── */
+function renderTable(rows) {
+  const tbody = document.getElementById('historyBody');
+  const thCol7 = document.getElementById('thCol7');
+
+  // Ubah header kolom 7 sesuai tab
+  if (thCol7) thCol7.textContent = currentTab === 'A' ? 'Peltier' : 'Fan Ekstra';
+
+  filteredRows = rows;
+
+  // Ringkasan
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="icon">📭</div><p>Tidak ada data pada rentang waktu ini.</p></div></td></tr>`;
+    document.getElementById('summaryRow').style.display = 'none';
+    return;
+  }
+
+  const avgSuhu  = (rows.reduce((s,r)=>s+Number(r.suhu||0),0)/rows.length).toFixed(1);
+  const avgHum   = Math.round(rows.reduce((s,r)=>s+Number(r.kelembapan||0),0)/rows.length);
+  const oldest   = rows[rows.length-1].timestamp.slice(0,16).replace('T',' ');
+  const newest   = rows[0].timestamp.slice(0,16).replace('T',' ');
+
+  document.getElementById('sumTotal').textContent       = rows.length;
+  document.getElementById('sumSuhu').textContent        = avgSuhu;
+  document.getElementById('sumKelembapan').textContent  = avgHum;
+  document.getElementById('sumRange').textContent       = oldest + ' → ' + newest;
+  document.getElementById('summaryRow').style.display   = 'flex';
+
+  // Baris tabel
+  const html = rows.map((r, i) => {
+    const ts    = r.timestamp ? r.timestamp.replace('T',' ').replace('+07:00',' WIB') : '-';
+    const suhu  = r.suhu      !== '' ? Number(r.suhu).toFixed(1)  : '-';
+    const hum   = r.kelembapan!== '' ? r.kelembapan : '-';
+    const adc   = r.adc       !== '' ? Number(r.adc).toFixed(0)   : '-';
+    const badge = v => `<span class="badge ${v?'badge-on':'badge-off'}">${v?'ON':'OFF'}</span>`;
+
+    // Tampilkan label slot waktu jika mode sampling aktif
+    let slotBadge = '';
+    if (currentInterval !== 'all' && r.epoch) {
+      const slotSec   = currentInterval * 60;
+      const slotStart = Math.floor(r.epoch / slotSec) * slotSec;
+      const d         = new Date(slotStart * 1000);
+      const hh        = String(d.getUTCHours() + 7).padStart(2,'0'); // WIB manual
+      const mm        = String(d.getUTCMinutes()).padStart(2,'0');
+      const fixHh     = String(Number(hh) % 24).padStart(2,'0');
+      slotBadge = `<span class="slot-label">Slot ${fixHh}:${mm}</span>`;
     }
 
-    function updateLastTime(id) {
-      const el = document.getElementById(id);
-      if (el) el.textContent = formatTimeWIB();
-    }
+    return `<tr>
+      <td style="color:var(--muted)">${i+1}</td>
+      <td>${ts}${slotBadge}</td>
+      <td>${suhu}</td>
+      <td>${hum}</td>
+      <td style="color:var(--muted)">${adc}</td>
+      <td>${badge(r.lampu)}</td>
+      <td>${badge(r.pompa)}</td>
+      <td>${badge(r.peltier)}</td>
+      <td>${badge(r.fan)}</td>
+    </tr>`;
+  }).join('');
+  tbody.innerHTML = html;
+}
 
-    // 🔹 Fungsi update tombol relay
-    function updateRelay(id, name, state) {
-      const btn = document.getElementById(id);
-      if (btn) {
-        btn.className = state ? "on" : "off";
-        btn.textContent = `${name}: ${state ? "ON" : "OFF"}`;
+/* ─────────────────────────────────────────────────────────
+   SAMPLING INTERVAL
+   Dari ribuan baris (1 data/detik), ambil hanya 1 data
+   per slot waktu N menit yang tepat (17:00, 17:30, 18:00…)
+   Algoritma:
+     1. Bagi waktu menjadi slot ukuran N menit
+     2. Untuk setiap slot, pilih baris yang epoch-nya PALING
+        DEKAT dengan awal slot (menit tepat)
+   ───────────────────────────────────────────────────────── */
+function samplingInterval(rows, intervalMenit) {
+  if (intervalMenit === 'all' || !intervalMenit) return rows;
+
+  const slotDetik = intervalMenit * 60;
+
+  // Kelompokkan berdasarkan slot → simpan baris terdekat ke awal slot
+  const slotMap = new Map();
+
+  rows.forEach(r => {
+    const slotKey  = Math.floor(r.epoch / slotDetik);  // indeks slot
+    const slotStart = slotKey * slotDetik;              // epoch awal slot
+    const delta     = Math.abs(r.epoch - slotStart);
+
+    if (!slotMap.has(slotKey)) {
+      slotMap.set(slotKey, { row: r, delta });
+    } else {
+      if (delta < slotMap.get(slotKey).delta) {
+        slotMap.set(slotKey, { row: r, delta });
       }
     }
+  });
 
-    // ---------------- INKUBATOR A ----------------
-    onValue(ref(db, "inkubatorA/suhu"), snap => {
-      updateValue("suhuA", snap.val(), " °C");
-      updateLastTime("lastUpdateA");
-    });
-    onValue(ref(db, "inkubatorA/kelembapan"), snap => updateValue("kelembapanA", snap.val(), " %"));
-    onValue(ref(db, "inkubatorA/relay/lampu"), snap => updateRelay("lampuA", "Lampu", snap.val()));
-    onValue(ref(db, "inkubatorA/relay/pompa"), snap => updateRelay("pompaA", "Pompa", snap.val()));
-    onValue(ref(db, "inkubatorA/relay/peltier"), snap => updateRelay("peltierA", "Peltier", snap.val()));
-    onValue(ref(db, "inkubatorA/relay/fan"), snap => updateRelay("fanA", "Fan", snap.val()));
+  // Urutkan: terbaru di atas (slot besar dulu)
+  return [...slotMap.values()]
+    .sort((a, b) => b.row.epoch - a.row.epoch)
+    .map(v => v.row);
+}
 
-    // ---------------- INKUBATOR B ----------------
-    onValue(ref(db, "inkubatorB/suhu"), snap => {
-      updateValue("suhuB", snap.val(), " °C");
-      updateLastTime("lastUpdateB");
-    });
-    onValue(ref(db, "inkubatorB/kelembapan"), snap => updateValue("kelembapanB", snap.val(), " %"));
-    onValue(ref(db, "inkubatorB/relay/lampu"), snap => updateRelay("lampuB", "Lampu", snap.val()));
-    onValue(ref(db, "inkubatorB/relay/pompa"), snap => updateRelay("pompaB", "Pompa", snap.val()));
-    onValue(ref(db, "inkubatorB/relay/peltier"), snap => updateRelay("peltierB", "Peltier", snap.val()));
-    onValue(ref(db, "inkubatorB/relay/fan"), snap => updateRelay("fanB", "Fan", snap.val()));
-  </script>
-</head>
+/* ── UBAH INTERVAL ── */
+window.setInterval_ = function(val, btn) {
+  currentInterval = val;
+  document.querySelectorAll('.itv-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
 
-<body>
-  <h1>Dashboard Inkubator</h1>
+  // Perbarui subtitle
+  const sub = document.getElementById('sectionSub');
+  const labels = { all:'Menampilkan semua data', 30:'Disampling setiap 30 menit', 60:'Disampling setiap 1 jam', 360:'Disampling setiap 6 jam', 1440:'Disampling setiap 1 hari' };
+  if (sub) sub.textContent = labels[val] ?? `Disampling setiap ${val} menit`;
 
-  <!-- 🔵 Inkubator A -->
-  <div class="card">
-    <div class="title">Inkubator A</div>
-    <div class="data">Suhu: <span id="suhuA">--</span></div>
-    <div class="data">Kelembapan: <span id="kelembapanA">--</span></div>
-    <div class="relay">
-      <button id="lampuA" class="off">Lampu: OFF</button>
-      <button id="pompaA" class="off">Pompa: OFF</button>
-      <button id="peltierA" class="off">Peltier: OFF</button>
-      <button id="fanA" class="off">Fan: OFF</button>
-    </div>
-    <div class="update-time">Terakhir diperbarui: <span id="lastUpdateA">--</span></div>
-  </div>
+  applyFilter();
+};
 
-  <!-- 🔵 Inkubator B -->
-  <div class="card">
-    <div class="title">Inkubator B</div>
-    <div class="data">Suhu: <span id="suhuB">--</span></div>
-    <div class="data">Kelembapan: <span id="kelembapanB">--</span></div>
-    <div class="relay">
-      <button id="lampuB" class="off">Lampu: OFF</button>
-      <button id="pompaB" class="off">Pompa: OFF</button>
-      <button id="peltierB" class="off">Peltier: OFF</button>
-      <button id="fanB" class="off">Fan: OFF</button>
-    </div>
-    <div class="update-time">Terakhir diperbarui: <span id="lastUpdateB">--</span></div>
-  </div>
+/* ── FILTER ── */
+window.applyFilter = function() {
+  const from = document.getElementById('filterFrom').value;
+  const to   = document.getElementById('filterTo').value;
+  let src    = currentTab === 'A' ? allRowsA : allRowsB;
+
+  // 1. Filter rentang waktu
+  if (from || to) {
+    const fromEpoch = from ? new Date(from).getTime() / 1000 : 0;
+    const toEpoch   = to   ? new Date(to).getTime()   / 1000 : Infinity;
+    src = src.filter(r => r.epoch >= fromEpoch && r.epoch <= toEpoch);
+  }
+
+  // 2. Terapkan sampling interval
+  const sampled = samplingInterval(src, currentInterval);
+
+  renderTable(sampled);
+};
+
+window.resetFilter = function() {
+  document.getElementById('filterFrom').value = '';
+  document.getElementById('filterTo').value   = '';
+  const src     = currentTab === 'A' ? allRowsA : allRowsB;
+  const sampled = samplingInterval(src, currentInterval);
+  renderTable(sampled);
+};
+
+/* ── TAB SWITCH ── */
+window.switchTab = function(tab, btn) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('filterFrom').value = '';
+  document.getElementById('filterTo').value   = '';
+  const src = tab === 'A' ? allRowsA : allRowsB;
+  if (src.length === 0) {
+    showLoading(true);
+    loadLog(tab);
+  } else {
+    const sampled = samplingInterval(src, currentInterval);
+    renderTable(sampled);
+  }
+};
+
+/* ── LOADING ── */
+function showLoading(show) {
+  document.getElementById('loading').style.display = show ? 'block' : 'none';
+  document.getElementById('tableWrap').style.display = show ? 'none' : 'block';
+}
+
+/* ── EXPORT EXCEL (SheetJS via CDN) ── */
+window.exportExcel = function() {
+  if (!filteredRows || filteredRows.length === 0) {
+    alert('Tidak ada data untuk diekspor.');
+    return;
+  }
+
+  // Muat SheetJS jika belum ada
+  if (!window.XLSX) {
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    script.onload = () => doExport();
+    document.head.appendChild(script);
+  } else {
+    doExport();
+  }
+
+  function doExport() {
+    const col7 = currentTab === 'A' ? 'Peltier' : 'Fan Ekstra';
+    const header = ['No','Waktu','Suhu (°C)','Kelembapan (%)','ADC','Lampu','Pompa', col7,'Fan'];
+
+    const data = [header, ...filteredRows.map((r, i) => [
+      i + 1,
+      r.timestamp ? r.timestamp.replace('T',' ').replace('+07:00','') : '-',
+      r.suhu       !== '' ? Number(r.suhu).toFixed(1)  : '-',
+      r.kelembapan !== '' ? r.kelembapan                : '-',
+      r.adc        !== '' ? Number(r.adc).toFixed(0)    : '-',
+      r.lampu    ? 'ON' : 'OFF',
+      r.pompa    ? 'ON' : 'OFF',
+      r.peltier  ? 'ON' : 'OFF',
+      r.fan      ? 'ON' : 'OFF'
+    ])];
+
+    const ws = window.XLSX.utils.aoa_to_sheet(data);
+
+    // Lebar kolom
+    ws['!cols'] = [
+      {wch:5},{wch:22},{wch:12},{wch:17},{wch:10},
+      {wch:8},{wch:8},{wch:10},{wch:8}
+    ];
+
+    // Style header (kuning tebal) — SheetJS Community Edition tidak support cell style penuh,
+    // tapi kita bisa set format
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, `Inkubator ${currentTab}`);
+
+    const now = new Date();
+    const fname = `Log_Inkubator${currentTab}_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}.xlsx`;
+
+    window.XLSX.writeFile(wb, fname);
+  }
+};
+</script>
 </body>
 </html>
-
-
-
