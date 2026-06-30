@@ -33,7 +33,6 @@
       min-height: 100vh;
     }
 
-    /* ── HEADER ── */
     header {
       background: var(--surface);
       border-bottom: 1px solid var(--border);
@@ -67,10 +66,8 @@
     }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
 
-    /* ── MAIN ── */
     main { padding: 28px 32px; max-width: 1280px; margin: 0 auto; }
 
-    /* ── LIVE CARDS ── */
     .cards-row {
       display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 32px;
     }
@@ -106,14 +103,12 @@
 
     .card-footer { margin-top:12px; font-size:11px; color:var(--muted); text-align:right; }
 
-    /* ── SECTION TITLE ── */
     .section-head {
       display:flex; align-items:center; gap:12px; margin-bottom:18px; flex-wrap:wrap;
     }
     .section-title { font-size:16px; font-weight:600; }
     .section-sub { font-size:12px; color:var(--muted); }
 
-    /* ── FILTER BAR ── */
     .filter-bar {
       display:flex; gap:10px; margin-left:auto; flex-wrap:wrap; align-items:center;
     }
@@ -136,7 +131,6 @@
     .btn-excel { background:#1a6b3c; color:#e2e8f0; }
     .btn-excel:hover { background:#1f8048; }
 
-    /* ── INTERVAL TOGGLE ── */
     .interval-toggle {
       display:flex; align-items:center; gap:0;
       background:var(--surface2); border:1px solid var(--border); border-radius:8px;
@@ -154,7 +148,6 @@
     }
     .itv-btn:hover:not(.active) { color:var(--text); background:var(--border); }
 
-    /* ── SLOT BADGE ── */
     .slot-label {
       display:inline-block; font-size:10px; font-weight:600;
       background:#1a3a2e; color:var(--accent); border:1px solid #1f5a44;
@@ -162,7 +155,6 @@
       vertical-align:middle; letter-spacing:.4px;
     }
 
-    /* ── TAB ── */
     .tabs { display:flex; gap:4px; background:var(--surface2); padding:4px; border-radius:10px; width:fit-content; margin-bottom:20px; }
     .tab {
       padding:7px 18px; border-radius:7px; font-size:13px; font-weight:500; cursor:pointer;
@@ -170,7 +162,6 @@
     }
     .tab.active { background:var(--surface); color:var(--text); box-shadow:0 1px 4px rgba(0,0,0,.4); }
 
-    /* ── TABLE ── */
     .table-wrap { overflow-x:auto; border-radius:var(--radius); border:1px solid var(--border); }
     table { width:100%; border-collapse:collapse; font-size:13px; }
     thead tr { background:var(--surface2); }
@@ -210,7 +201,6 @@
     }
     @keyframes spin { to { transform:rotate(360deg); } }
 
-    /* ── SUMMARY CHIPS ── */
     .summary-row { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
     .chip {
       background:var(--surface2); border:1px solid var(--border);
@@ -334,7 +324,7 @@
     <div class="chip">Rentang waktu: <strong id="sumRange">--</strong></div>
   </div>
 
-  <div id="loading"><div class="spinner"></div>Memuat data histori…</div>
+  <div id="loading"><div class="spinner"></div>Memuat data histori… <span id="loadingDetail"></span></div>
 
   <div class="table-wrap" id="tableWrap">
     <table>
@@ -361,7 +351,7 @@
 
 <script type="module">
 import { initializeApp }    from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
-import { getDatabase, ref, onValue, query, orderByKey, limitToLast }
+import { getDatabase, ref, onValue, query, orderByKey }
                             from "https://www.gstatic.com/firebasejs/10.11.0/firebase-database.js";
 
 /* ── CONFIG ── */
@@ -384,6 +374,8 @@ let allRowsA        = [];
 let allRowsB        = [];
 let filteredRows    = [];
 let currentInterval = 'all';   // 'all' | 30 | 60 | 360 | 1440  (dalam menit)
+let loadedA         = false;
+let loadedB         = false;
 
 /* ── LIVE CARD helpers ── */
 function uv(id, val, suf = '') {
@@ -417,10 +409,12 @@ onValue(ref(db,'inkubatorB/relay/pompa'),   s => setRelay('pompaB',   s.val()));
 onValue(ref(db,'inkubatorB/relay/peltier'), s => setRelay('peltierB', s.val()));
 onValue(ref(db,'inkubatorB/relay/fan'),     s => setRelay('fanB',     s.val()));
 
-/* ── LOAD LOG ── */
+/* ── LOAD LOG (TANPA limitToLast → ambil SEMUA histori) ── */
 function loadLog(inkubator) {
-  showLoading(true);
-  const logRef = query(ref(db, `log${inkubator}`), orderByKey(), limitToLast(2000));
+  showLoading(true, inkubator);
+  // PENTING: tidak ada limitToLast lagi, sehingga seluruh node logA / logB terbaca,
+  // bukan hanya 2000 record terakhir (yang dulunya hanya mencakup data hari ini saja).
+  const logRef = query(ref(db, `log${inkubator}`), orderByKey());
   onValue(logRef, snap => {
     const rows = [];
     if (snap.exists()) {
@@ -440,8 +434,8 @@ function loadLog(inkubator) {
       });
       rows.reverse();  // terbaru di atas
     }
-    if (inkubator === 'A') allRowsA = rows;
-    else                   allRowsB = rows;
+    if (inkubator === 'A') { allRowsA = rows; loadedA = true; }
+    else                   { allRowsB = rows; loadedB = true; }
 
     if (inkubator === currentTab) {
       const sampled = samplingInterval(rows, currentInterval);
@@ -459,12 +453,10 @@ function renderTable(rows) {
   const tbody = document.getElementById('historyBody');
   const thCol7 = document.getElementById('thCol7');
 
-  // Ubah header kolom 7 sesuai tab
   if (thCol7) thCol7.textContent = currentTab === 'A' ? 'Peltier' : 'Fan Ekstra';
 
   filteredRows = rows;
 
-  // Ringkasan
   if (rows.length === 0) {
     tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="icon">📭</div><p>Tidak ada data pada rentang waktu ini.</p></div></td></tr>`;
     document.getElementById('summaryRow').style.display = 'none';
@@ -482,7 +474,6 @@ function renderTable(rows) {
   document.getElementById('sumRange').textContent       = oldest + ' → ' + newest;
   document.getElementById('summaryRow').style.display   = 'flex';
 
-  // Baris tabel
   const html = rows.map((r, i) => {
     const ts    = r.timestamp ? r.timestamp.replace('T',' ').replace('+07:00',' WIB') : '-';
     const suhu  = r.suhu      !== '' ? Number(r.suhu).toFixed(1)  : '-';
@@ -490,7 +481,6 @@ function renderTable(rows) {
     const adc   = r.adc       !== '' ? Number(r.adc).toFixed(0)   : '-';
     const badge = v => `<span class="badge ${v?'badge-on':'badge-off'}">${v?'ON':'OFF'}</span>`;
 
-    // Tampilkan label slot waktu jika mode sampling aktif
     let slotBadge = '';
     if (currentInterval !== 'all' && r.epoch) {
       const slotSec   = currentInterval * 60;
@@ -519,24 +509,16 @@ function renderTable(rows) {
 
 /* ─────────────────────────────────────────────────────────
    SAMPLING INTERVAL
-   Dari ribuan baris (1 data/detik), ambil hanya 1 data
-   per slot waktu N menit yang tepat (17:00, 17:30, 18:00…)
-   Algoritma:
-     1. Bagi waktu menjadi slot ukuran N menit
-     2. Untuk setiap slot, pilih baris yang epoch-nya PALING
-        DEKAT dengan awal slot (menit tepat)
    ───────────────────────────────────────────────────────── */
 function samplingInterval(rows, intervalMenit) {
   if (intervalMenit === 'all' || !intervalMenit) return rows;
 
   const slotDetik = intervalMenit * 60;
-
-  // Kelompokkan berdasarkan slot → simpan baris terdekat ke awal slot
   const slotMap = new Map();
 
   rows.forEach(r => {
-    const slotKey  = Math.floor(r.epoch / slotDetik);  // indeks slot
-    const slotStart = slotKey * slotDetik;              // epoch awal slot
+    const slotKey  = Math.floor(r.epoch / slotDetik);
+    const slotStart = slotKey * slotDetik;
     const delta     = Math.abs(r.epoch - slotStart);
 
     if (!slotMap.has(slotKey)) {
@@ -548,7 +530,6 @@ function samplingInterval(rows, intervalMenit) {
     }
   });
 
-  // Urutkan: terbaru di atas (slot besar dulu)
   return [...slotMap.values()]
     .sort((a, b) => b.row.epoch - a.row.epoch)
     .map(v => v.row);
@@ -560,7 +541,6 @@ window.setInterval_ = function(val, btn) {
   document.querySelectorAll('.itv-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 
-  // Perbarui subtitle
   const sub = document.getElementById('sectionSub');
   const labels = { all:'Menampilkan semua data', 30:'Disampling setiap 30 menit', 60:'Disampling setiap 1 jam', 360:'Disampling setiap 6 jam', 1440:'Disampling setiap 1 hari' };
   if (sub) sub.textContent = labels[val] ?? `Disampling setiap ${val} menit`;
@@ -574,16 +554,13 @@ window.applyFilter = function() {
   const to   = document.getElementById('filterTo').value;
   let src    = currentTab === 'A' ? allRowsA : allRowsB;
 
-  // 1. Filter rentang waktu
   if (from || to) {
     const fromEpoch = from ? new Date(from).getTime() / 1000 : 0;
     const toEpoch   = to   ? new Date(to).getTime()   / 1000 : Infinity;
     src = src.filter(r => r.epoch >= fromEpoch && r.epoch <= toEpoch);
   }
 
-  // 2. Terapkan sampling interval
   const sampled = samplingInterval(src, currentInterval);
-
   renderTable(sampled);
 };
 
@@ -603,8 +580,9 @@ window.switchTab = function(tab, btn) {
   document.getElementById('filterFrom').value = '';
   document.getElementById('filterTo').value   = '';
   const src = tab === 'A' ? allRowsA : allRowsB;
-  if (src.length === 0) {
-    showLoading(true);
+  const isLoaded = tab === 'A' ? loadedA : loadedB;
+  if (!isLoaded) {
+    showLoading(true, tab);
     loadLog(tab);
   } else {
     const sampled = samplingInterval(src, currentInterval);
@@ -613,9 +591,11 @@ window.switchTab = function(tab, btn) {
 };
 
 /* ── LOADING ── */
-function showLoading(show) {
+function showLoading(show, inkubator) {
   document.getElementById('loading').style.display = show ? 'block' : 'none';
   document.getElementById('tableWrap').style.display = show ? 'none' : 'block';
+  const detail = document.getElementById('loadingDetail');
+  if (detail) detail.textContent = show && inkubator ? `(Inkubator ${inkubator}, seluruh data)` : '';
 }
 
 /* ── EXPORT EXCEL (SheetJS via CDN) ── */
@@ -625,7 +605,6 @@ window.exportExcel = function() {
     return;
   }
 
-  // Muat SheetJS jika belum ada
   if (!window.XLSX) {
     const script = document.createElement('script');
     script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
@@ -653,14 +632,11 @@ window.exportExcel = function() {
 
     const ws = window.XLSX.utils.aoa_to_sheet(data);
 
-    // Lebar kolom
     ws['!cols'] = [
       {wch:5},{wch:22},{wch:12},{wch:17},{wch:10},
       {wch:8},{wch:8},{wch:10},{wch:8}
     ];
 
-    // Style header (kuning tebal) — SheetJS Community Edition tidak support cell style penuh,
-    // tapi kita bisa set format
     const wb = window.XLSX.utils.book_new();
     window.XLSX.utils.book_append_sheet(wb, ws, `Inkubator ${currentTab}`);
 
