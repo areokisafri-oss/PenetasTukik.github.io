@@ -129,10 +129,8 @@
     .btn-primary:hover { background:#00e0b8; }
     .btn-outline { background:transparent; border:1px solid var(--border); color:var(--text); }
     .btn-outline:hover { border-color:var(--accent); color:var(--accent); }
-    .btn-warn    { background:transparent; border:1px solid var(--warn); color: var(--warn); }
-    .btn-warn:hover { background:#2a1f08; }
-    .btn-danger  { background:transparent; border:1px solid var(--danger); color:var(--danger); }
-    .btn-danger:hover { background:#2a1416; }
+    .btn-danger  { background:var(--danger); color:#fff; font-weight:600; }
+    .btn-danger:hover { background:#dc2626; }
     .btn-excel { background:#1a6b3c; color:#e2e8f0; }
     .btn-excel:hover { background:#1f8048; }
 
@@ -275,7 +273,7 @@
       <div class="card-footer">Diperbarui: <span id="lastUpdateA">--</span></div>
     </div>
 
-    <!-- Inkubator B (tanpa Peltier) -->
+    <!-- Inkubator B -->
     <div class="card card-b">
       <div class="card-header">
         <div class="card-dot"></div>
@@ -321,9 +319,7 @@
       <input type="datetime-local" id="filterTo">
       <button class="btn btn-primary" onclick="applyFilter()">Terapkan</button>
       <button class="btn btn-outline" onclick="resetFilter()">Reset</button>
-      <button class="btn btn-warn" onclick="clearDashboardView()">🧹 Kosongkan Tampilan</button>
-      <button class="btn btn-outline" onclick="restoreDashboardView()">👁 Tampilkan Lagi</button>
-      <button class="btn btn-danger" onclick="deleteAll()">🗑 Hapus Semua</button>
+      <button class="btn btn-danger" onclick="deleteAll()">🗑 Hapus Permanen dari DB</button>
       <button class="btn btn-excel" onclick="exportExcel()">⬇ Excel</button>
     </div>
   </div>
@@ -356,7 +352,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
 import {
-  getDatabase, ref, onValue, query, orderByKey, get, remove, update
+  getDatabase, ref, onValue
 } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-database.js";
 
 /* ── CONFIG ── */
@@ -386,35 +382,7 @@ let loadedB         = false;
 /* Batas baris yang digambar ke DOM */
 const MAX_RENDER = 1000;
 
-/* Ukuran chunk saat hapus */
-const DELETE_CHUNK = 1000;
-
-/* ─────────────────────────────────────────────────────────
-   LOCALSTORAGE CUTOFF — "Kosongkan Tampilan"
-   Data dengan epoch ≤ hideBefore akan disembunyikan dari
-   dashboard, TAPI tetap ada di Firebase.
-   Nilai 0 = tidak ada yang disembunyikan.
-   ───────────────────────────────────────────────────────── */
-const HIDE_KEY = 'penetas_hideBefore';
-
-function getHideBefore() {
-  const v = localStorage.getItem(HIDE_KEY);
-  return v ? Number(v) : 0;
-}
-function setHideBefore(epoch) {
-  if (epoch > 0) localStorage.setItem(HIDE_KEY, String(epoch));
-  else           localStorage.removeItem(HIDE_KEY);
-}
-
-/* Ambil baris yang LOLOS filter "Kosongkan Tampilan" */
-function visibleSourceRows() {
-  const src = currentTab === 'A' ? allRowsA : allRowsB;
-  const cut = getHideBefore();
-  if (cut > 0) return src.filter(r => r.epoch > cut);
-  return src;
-}
-
-/* ── LIVE CARD helpers ── */
+/* ── LIVE CARD HELPERS ── */
 function uv(id, val, suf = '') {
   const el = document.getElementById(id);
   if (el) el.textContent = val + suf;
@@ -432,14 +400,14 @@ function setRelay(id, state) {
 }
 
 /* ── LIVE LISTENERS ── */
-onValue(ref(db,'inkubatorA/suhu'),       s => { uv('suhuA', s.val()); uv('lastUpdateA', fmtWIB()); });
+onValue(ref(db,'inkubatorA/suhu'),        s => { uv('suhuA', s.val()); uv('lastUpdateA', fmtWIB()); });
 onValue(ref(db,'inkubatorA/kelembapan'), s => uv('kelembapanA', s.val()));
 onValue(ref(db,'inkubatorA/relay/lampu'),   s => setRelay('lampuA',   s.val()));
 onValue(ref(db,'inkubatorA/relay/pompa'),   s => setRelay('pompaA',   s.val()));
 onValue(ref(db,'inkubatorA/relay/peltier'), s => setRelay('peltierA', s.val()));
 onValue(ref(db,'inkubatorA/relay/fan'),     s => setRelay('fanA',     s.val()));
 
-onValue(ref(db,'inkubatorB/suhu'),       s => { uv('suhuB', s.val()); uv('lastUpdateB', fmtWIB()); });
+onValue(ref(db,'inkubatorB/suhu'),        s => { uv('suhuB', s.val()); uv('lastUpdateB', fmtWIB()); });
 onValue(ref(db,'inkubatorB/kelembapan'), s => uv('kelembapanB', s.val()));
 onValue(ref(db,'inkubatorB/relay/lampu'),   s => setRelay('lampuB',   s.val()));
 onValue(ref(db,'inkubatorB/relay/pompa'),   s => setRelay('pompaB',   s.val()));
@@ -465,27 +433,34 @@ function renderTableHead() {
     </tr>`;
 }
 
-/* ── LOAD LOG ── */
+/* ── LOAD LOG (Memakai REST API Ringan) ── */
 async function loadLog(inkubator) {
   showLoading(true, inkubator);
+  const detail = document.getElementById('loadingDetail');
+  
   try {
-    const logRef = query(ref(db, `log${inkubator}`), orderByKey());
-    const snap   = await get(logRef);
+    if (detail) detail.textContent = `(Membaca data Inkubator ${inkubator}...)`;
+    
+    // Ambil 1000 item terbaru saja agar tampilan cepat
+    const dataRes = await fetch(`${firebaseConfig.databaseURL}/log${inkubator}.json?orderBy="$key"&limitToLast=1000`);
+    if (!dataRes.ok) throw new Error(`HTTP Status ${dataRes.status}`);
 
+    const dataObj = await dataRes.json();
     const rows = [];
-    if (snap.exists()) {
-      snap.forEach(child => {
-        const d = child.val();
+
+    if (dataObj && typeof dataObj === 'object') {
+      Object.keys(dataObj).forEach(key => {
+        const d = dataObj[key];
         rows.push({
-          epoch:       Number(child.key),
-          timestamp:   d.timestamp   || '',
-          suhu:        d.suhu        ?? '',
-          kelembapan:  d.kelembapan  ?? '',
-          adc:         d.adc         ?? '',
-          lampu:       d.lampu       ?? false,
-          pompa:       d.pompa       ?? false,
-          peltier:     d.peltier     ?? false,
-          fan:         d.fan         ?? false
+          epoch:      Number(key),
+          timestamp:  d.timestamp  || '',
+          suhu:       d.suhu       ?? '',
+          kelembapan: d.kelembapan ?? '',
+          adc:        d.adc        ?? '',
+          lampu:      d.lampu      ?? false,
+          pompa:      d.pompa      ?? false,
+          peltier:    d.peltier    ?? false,
+          fan:        d.fan        ?? false
         });
       });
       rows.reverse();
@@ -495,8 +470,7 @@ async function loadLog(inkubator) {
     else                   { allRowsB = rows; loadedB = true; }
 
     if (inkubator === currentTab) {
-      const src = visibleSourceRows();
-      renderTable(samplingInterval(src, currentInterval));
+      renderTable(samplingInterval(rows, currentInterval));
     }
   } catch (err) {
     console.error('loadLog error:', err);
@@ -529,8 +503,8 @@ function renderTable(rows) {
 
   const avgSuhu  = (rows.reduce((s,r)=>s+Number(r.suhu||0),0)/rows.length).toFixed(1);
   const avgHum   = Math.round(rows.reduce((s,r)=>s+Number(r.kelembapan||0),0)/rows.length);
-  const oldest   = rows[rows.length-1].timestamp.slice(0,16).replace('T',' ');
-  const newest   = rows[0].timestamp.slice(0,16).replace('T',' ');
+  const oldest   = rows[rows.length-1].timestamp ? rows[rows.length-1].timestamp.slice(0,16).replace('T',' ') : '-';
+  const newest   = rows[0].timestamp ? rows[0].timestamp.slice(0,16).replace('T',' ') : '-';
 
   document.getElementById('sumTotal').textContent       = rows.length;
   document.getElementById('sumSuhu').textContent        = avgSuhu;
@@ -626,7 +600,7 @@ window.setInterval_ = function(val, btn) {
 window.applyFilter = function() {
   const from = document.getElementById('filterFrom').value;
   const to   = document.getElementById('filterTo').value;
-  let src    = visibleSourceRows();     // ← sudah difilter "Kosongkan Tampilan"
+  let src    = currentTab === 'A' ? allRowsA : allRowsB;
 
   if (from || to) {
     const fromEpoch = from ? new Date(from).getTime() / 1000 : 0;
@@ -654,7 +628,7 @@ window.resetFilter = function() {
 
   requestAnimationFrame(() => {
     setTimeout(() => {
-      const src = visibleSourceRows();
+      const src = currentTab === 'A' ? allRowsA : allRowsB;
       renderTable(src);
       showLoading(false);
     }, 0);
@@ -662,74 +636,12 @@ window.resetFilter = function() {
 };
 
 /* ─────────────────────────────────────────────────────────
-   KOSONGKAN TAMPILAN — sembunyikan riwayat di dashboard
-   TANPA menghapus dari Firebase.
-   Menyimpan cutoff di localStorage → tetap tersembunyi
-   walau halaman di-refresh.
-   ───────────────────────────────────────────────────────── */
-window.clearDashboardView = function() {
-  const total = currentTab === 'A' ? allRowsA.length : allRowsB.length;
-  if (total === 0) {
-    alert('Tidak ada data untuk disembunyikan.');
-    return;
-  }
-
-  if (!confirm(
-    `🧹 Sembunyikan riwayat Inkubator ${currentTab} dari dashboard?\n\n` +
-    `• Dashboard akan tampak kosong.\n` +
-    `• Data TETAP AMAN di Firebase (tidak dihapus).\n` +
-    `• Bisa dimunculkan lagi dengan tombol "Tampilkan Lagi".`
-  )) return;
-
-  // Simpan cutoff = waktu sekarang
-  const cutoff = Math.floor(Date.now() / 1000);
-  setHideBefore(cutoff);
-
-  // Render ulang — pasti kosong karena semua epoch ≤ cutoff
-  showLoading(true, currentTab);
-  requestAnimationFrame(() => {
-    setTimeout(() => {
-      const src = visibleSourceRows();
-      renderTable(src);
-      showLoading(false);
-      const sub = document.getElementById('sectionSub');
-      if (sub) sub.textContent = 'Riwayat disembunyikan dari dashboard (data tetap di Firebase)';
-    }, 0);
-  });
-};
-
-/* ─────────────────────────────────────────────────────────
-   TAMPILKAN LAGI — batalkan "Kosongkan Tampilan"
-   ───────────────────────────────────────────────────────── */
-window.restoreDashboardView = function() {
-  const cut = getHideBefore();
-  if (cut === 0) {
-    alert('Tidak ada riwayat yang sedang disembunyikan.');
-    return;
-  }
-
-  setHideBefore(0);
-
-  showLoading(true, currentTab);
-  requestAnimationFrame(() => {
-    setTimeout(() => {
-      const src = visibleSourceRows();
-      renderTable(src);
-      showLoading(false);
-      const sub = document.getElementById('sectionSub');
-      if (sub) sub.textContent = 'Menampilkan semua data';
-    }, 0);
-  });
-};
-
-/* ─────────────────────────────────────────────────────────
-   HAPUS SEMUA — Solusi 2 (chunked)
-   Menghapus permanen dari Firebase.
+   HAPUS PERMANEN BERTAHAP VIA REST API (ANTI-CRASH)
    ───────────────────────────────────────────────────────── */
 window.deleteAll = async function() {
   const step1 = confirm(
-    `⚠️ HAPUS SELURUH riwayat Inkubator ${currentTab} dari Firebase?\n\n` +
-    `Semua isi node "log${currentTab}" akan dihapus permanen dan tidak bisa dikembalikan.`
+    `⚠️ HAPUS PERMANEN seluruh riwayat Inkubator ${currentTab} dari Firebase?\n\n` +
+    `Proses ini akan menghapus data secara bertahap sampai bersih total.`
   );
   if (!step1) return;
 
@@ -743,47 +655,72 @@ window.deleteAll = async function() {
 
   showLoading(true, currentTab);
   const sub = document.getElementById('sectionSub');
+  const detail = document.getElementById('loadingDetail');
+
+  const targetNode = `log${currentTab}`;
+  const baseUrl = `${firebaseConfig.databaseURL}/${targetNode}`;
+  let totalDeleted = 0;
+  const chunkSize = 1000;
 
   try {
-    const logRef = query(ref(db, `log${currentTab}`), orderByKey());
-    const snap   = await get(logRef);
+    while (true) {
+      if (sub) sub.textContent = 'Menghapus data di Firebase secara bertahap...';
+      if (detail) detail.textContent = `(Telah terhapus: ${totalDeleted.toLocaleString('id-ID')} record)`;
 
-    if (!snap.exists()) {
-      alert('Node sudah kosong. Tidak ada data untuk dihapus.');
-      return;
+      // 1. Ambil 1000 key pertama menggunakan shallow query
+      const shallowRes = await fetch(`${baseUrl}.json?shallow=true&limitToFirst=${chunkSize}`);
+      if (!shallowRes.ok) throw new Error(`HTTP Status ${shallowRes.status}`);
+
+      const keysObj = await shallowRes.json();
+
+      // Jika database sudah benar-benar kosong, hentikan loop
+      if (!keysObj || typeof keysObj !== 'object' || Object.keys(keysObj).length === 0) {
+        break;
+      }
+
+      const keys = Object.keys(keysObj);
+
+      // 2. Buat payload hapus { key1: null, key2: null, ... }
+      const payload = {};
+      keys.forEach(k => { payload[k] = null; });
+
+      // 3. Kirim PATCH request untuk menghapus 1000 data sekaligus di Firebase
+      const patchRes = await fetch(`${baseUrl}.json`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!patchRes.ok) {
+        throw new Error(`Gagal menghapus batch: ${patchRes.statusText}`);
+      }
+
+      totalDeleted += keys.length;
+
+      // Jika key kurang dari chunkSize, berarti ini batch terakhir
+      if (keys.length < chunkSize) {
+        break;
+      }
     }
 
-    const keys = [];
-    snap.forEach(child => keys.push(child.key));
-
-    const total   = keys.length;
-    let   deleted = 0;
-
-    for (let i = 0; i < total; i += DELETE_CHUNK) {
-      const chunk   = keys.slice(i, i + DELETE_CHUNK);
-      const updates = {};
-      chunk.forEach(k => { updates[k] = null; });
-
-      await update(ref(db, `log${currentTab}`), updates);
-      deleted += chunk.length;
-
-      if (sub) sub.textContent = `Menghapus… ${deleted.toLocaleString('id-ID')}/${total.toLocaleString('id-ID')}`;
-      await new Promise(r => setTimeout(r, 0));
+    // Reset state lokal
+    if (currentTab === 'A') { 
+      allRowsA = []; 
+      loadedA = true; 
+    } else { 
+      allRowsB = []; 
+      loadedB = true; 
     }
 
-    // Kosongkan state & reset cutoff (data sudah benar-benar kosong)
-    if (currentTab === 'A') { allRowsA = []; loadedA = true; }
-    else                    { allRowsB = []; loadedB = true; }
-
-    // Cutoff tidak perlu lagi — hapus supaya konsisten
-    setHideBefore(0);
+    filteredRows = [];
+    renderTable([]);
 
     if (sub) sub.textContent = 'Riwayat kosong';
-    renderTable([]);
-    alert(`Berhasil menghapus ${total.toLocaleString('id-ID')} catatan dari Inkubator ${currentTab}.`);
+    alert(`✅ Berhasil menghapus permanen total ${totalDeleted.toLocaleString('id-ID')} data dari Inkubator ${currentTab}!`);
+
   } catch (err) {
     console.error('deleteAll error:', err);
-    alert('Gagal menghapus: ' + err.message);
+    alert('❌ Gagal menghapus! Cek koneksi atau Firebase Rules Anda.\n\nPesan Error: ' + err.message);
   } finally {
     showLoading(false);
   }
@@ -804,15 +741,15 @@ window.switchTab = function(tab, btn) {
   if (!isLoaded) {
     loadLog(tab);
   } else {
-    const src = visibleSourceRows();
+    const src = tab === 'A' ? allRowsA : allRowsB;
     renderTable(samplingInterval(src, currentInterval));
   }
 };
 
 /* ── LOADING ── */
 function showLoading(show, inkubator) {
-  document.getElementById('loading').style.display     = show ? 'block' : 'none';
-  document.getElementById('tableWrap').style.display   = show ? 'none'  : 'block';
+  document.getElementById('loading').style.display   = show ? 'block' : 'none';
+  document.getElementById('tableWrap').style.display = show ? 'none'  : 'block';
   const detail = document.getElementById('loadingDetail');
   if (detail) detail.textContent = show && inkubator ? `(Inkubator ${inkubator})` : '';
 }
@@ -843,8 +780,8 @@ window.exportExcel = function() {
       const base = [
         i + 1,
         r.timestamp ? r.timestamp.replace('T',' ').replace('+07:00','') : '-',
-        r.suhu       !== '' ? Number(r.suhu).toFixed(1)  : '-',
-        r.kelembapan !== '' ? r.kelembapan                : '-',
+        r.suhu        !== '' ? Number(r.suhu).toFixed(1)  : '-',
+        r.kelembapan !== '' ? r.kelembapan                 : '-',
         r.adc        !== '' ? Number(r.adc).toFixed(0)    : '-',
         r.lampu    ? 'ON' : 'OFF',
         r.pompa    ? 'ON' : 'OFF'
