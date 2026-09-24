@@ -352,8 +352,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
 import {
-  getDatabase, ref, onValue, query, orderByKey,
-  limitToLast, startAt, endAt, get
+  getDatabase, ref, onValue, query, orderByKey, get
 } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-database.js";
 
 /* ── CONFIG ── */
@@ -376,13 +375,9 @@ let currentTab      = 'A';
 let allRowsA        = [];
 let allRowsB        = [];
 let filteredRows    = [];
-let currentInterval = 'all';   // 'all' | 30 | 60 | 360 | 1440  (menit)
+let currentInterval = 'all';
 let loadedA         = false;
 let loadedB         = false;
-
-/* Batas jumlah baris yang ditarik dari server agar loading tidak lambat.
-   Jika butuh data lebih lama, gunakan filter tanggal (Dari/Sampai). */
-const MAX_ROWS = 5000;
 
 /* ── LIVE CARD helpers ── */
 function uv(id, val, suf = '') {
@@ -401,7 +396,7 @@ function setRelay(id, state) {
   el.className = 'relay-pill ' + (state ? 'on' : 'off');
 }
 
-/* ── LIVE LISTENERS (realtime, tidak berubah) ── */
+/* ── LIVE LISTENERS (realtime) ── */
 onValue(ref(db,'inkubatorA/suhu'),       s => { uv('suhuA', s.val()); uv('lastUpdateA', fmtWIB()); });
 onValue(ref(db,'inkubatorA/kelembapan'), s => uv('kelembapanA', s.val()));
 onValue(ref(db,'inkubatorA/relay/lampu'),   s => setRelay('lampuA',   s.val()));
@@ -417,20 +412,14 @@ onValue(ref(db,'inkubatorB/relay/peltier'), s => setRelay('peltierB', s.val()));
 onValue(ref(db,'inkubatorB/relay/fan'),     s => setRelay('fanB',     s.val()));
 
 /* ─────────────────────────────────────────────────────────
-   LOAD LOG (perbaikan utama)
-   - Pakai get() sekali baca, bukan onValue
-   - Pakai limitToLast(MAX_ROWS) agar tidak menarik seluruh node
-   - Opsional fromEpoch / toEpoch → filter di server via startAt/endAt
+   LOAD LOG — TAMPILKAN SEMUA DATA
+   - Pakai get() sekali baca (bukan onValue berulang)
+   - TANPA limitToLast → seluruh node logX ditarik
    ───────────────────────────────────────────────────────── */
-async function loadLog(inkubator, opts = {}) {
+async function loadLog(inkubator) {
   showLoading(true, inkubator);
   try {
-    const parts = [orderByKey()];
-    if (opts.fromEpoch != null) parts.push(startAt(String(Math.floor(opts.fromEpoch))));
-    if (opts.toEpoch   != null) parts.push(endAt  (String(Math.floor(opts.toEpoch))));
-    parts.push(limitToLast(MAX_ROWS));
-
-    const logRef = query(ref(db, `log${inkubator}`), ...parts);
+    const logRef = query(ref(db, `log${inkubator}`), orderByKey());
     const snap   = await get(logRef);
 
     const rows = [];
@@ -456,12 +445,10 @@ async function loadLog(inkubator, opts = {}) {
     else                   { allRowsB = rows; loadedB = true; }
 
     if (inkubator === currentTab) {
-      const sampled = samplingInterval(rows, currentInterval);
-      renderTable(sampled);
+      renderTable(samplingInterval(rows, currentInterval));
     }
   } catch (err) {
     console.error('loadLog error:', err);
-    // Kalau error, tampilkan pesan di tabel supaya user tidak bingung
     const tbody = document.getElementById('historyBody');
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="icon">⚠️</div><p>Gagal memuat data: ${err.message}</p></div></td></tr>`;
@@ -471,7 +458,7 @@ async function loadLog(inkubator, opts = {}) {
   }
 }
 
-/* Muat hanya tab aktif di awal → mempercepat loading pertama */
+/* Muat hanya tab aktif di awal → tab B di-lazy saat diklik */
 loadLog('A');
 
 /* ── RENDER TABLE ── */
@@ -512,7 +499,7 @@ function renderTable(rows) {
       const slotSec   = currentInterval * 60;
       const slotStart = Math.floor(r.epoch / slotSec) * slotSec;
       const d         = new Date(slotStart * 1000);
-      const hh        = String(d.getUTCHours() + 7).padStart(2,'0'); // WIB manual
+      const hh        = String(d.getUTCHours() + 7).padStart(2,'0');
       const mm        = String(d.getUTCMinutes()).padStart(2,'0');
       const fixHh     = String(Number(hh) % 24).padStart(2,'0');
       slotBadge = `<span class="slot-label">Slot ${fixHh}:${mm}</span>`;
@@ -533,9 +520,7 @@ function renderTable(rows) {
   tbody.innerHTML = html;
 }
 
-/* ─────────────────────────────────────────────────────────
-   SAMPLING INTERVAL
-   ───────────────────────────────────────────────────────── */
+/* ── SAMPLING INTERVAL ── */
 function samplingInterval(rows, intervalMenit) {
   if (intervalMenit === 'all' || !intervalMenit) return rows;
 
@@ -574,46 +559,36 @@ window.setInterval_ = function(val, btn) {
   applyFilter();
 };
 
-/* ─────────────────────────────────────────────────────────
-   FILTER
-   - Kalau ada tanggal → fetch dari server (startAt/endAt)
-     supaya hanya data rentang itu yang diunduh (jauh lebih cepat)
-   - Kalau tidak ada tanggal → pakai data di memori
-   ───────────────────────────────────────────────────────── */
-window.applyFilter = async function() {
+/* ── FILTER (di memori, data sudah lengkap) ── */
+window.applyFilter = function() {
   const from = document.getElementById('filterFrom').value;
   const to   = document.getElementById('filterTo').value;
+  let src    = currentTab === 'A' ? allRowsA : allRowsB;
 
   if (from || to) {
-    const fromEpoch = from ? new Date(from).getTime() / 1000 : null;
-    const toEpoch   = to   ? new Date(to).getTime()   / 1000 : null;
-    await loadLog(currentTab, { fromEpoch, toEpoch });
-    return;
+    const fromEpoch = from ? new Date(from).getTime() / 1000 : 0;
+    const toEpoch   = to   ? new Date(to).getTime()   / 1000 : Infinity;
+    src = src.filter(r => r.epoch >= fromEpoch && r.epoch <= toEpoch);
   }
 
-  const src = currentTab === 'A' ? allRowsA : allRowsB;
   renderTable(samplingInterval(src, currentInterval));
 };
 
-/* ── RESET (diperbaiki) ── */
+/* ── RESET ── */
 window.resetFilter = function() {
-  // 1. Bersihkan tanggal
   document.getElementById('filterFrom').value = '';
   document.getElementById('filterTo').value   = '';
 
-  // 2. Kembalikan interval ke "Semua"
   currentInterval = 'all';
   document.querySelectorAll('.itv-btn').forEach(b => b.classList.remove('active'));
   const firstBtn = document.querySelector('.itv-btn');
   if (firstBtn) firstBtn.classList.add('active');
 
-  // 3. Perbarui label section
   const sub = document.getElementById('sectionSub');
   if (sub) sub.textContent = 'Menampilkan semua data';
 
-  // 4. Muat ulang data dari server (bukan hanya dari memori),
-  //    karena bisa jadi allRowsX sebelumnya sudah tersaring tanggal
-  loadLog(currentTab);
+  const src = currentTab === 'A' ? allRowsA : allRowsB;
+  renderTable(samplingInterval(src, currentInterval));
 };
 
 /* ── TAB SWITCH ── */
@@ -627,7 +602,7 @@ window.switchTab = function(tab, btn) {
 
   const isLoaded = tab === 'A' ? loadedA : loadedB;
   if (!isLoaded) {
-    loadLog(tab);                     // async lazy load
+    loadLog(tab);                     // lazy load
   } else {
     const src = tab === 'A' ? allRowsA : allRowsB;
     renderTable(samplingInterval(src, currentInterval));
