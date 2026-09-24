@@ -180,6 +180,18 @@
     tbody tr:last-child td { border-bottom:none; }
     tbody tr:hover td { background:var(--surface2); }
 
+    /* Baris notifikasi di dalam tabel (batas render) */
+    .table-notice td {
+      text-align:center;
+      font-family: 'Inter', sans-serif;
+      font-size: 11px;
+      color: var(--warn);
+      background: #2a1f08;
+      padding: 8px 14px;
+      border-bottom: none;
+      letter-spacing: .3px;
+    }
+
     .badge {
       display:inline-block; padding:2px 8px; border-radius:99px;
       font-size:11px; font-weight:600;
@@ -371,6 +383,13 @@ let currentInterval = 'all';
 let loadedA         = false;
 let loadedB         = false;
 
+/* ── KONFIGURASI RENDER (Solusi A) ──
+   Batas jumlah baris yang digambar ke DOM. Data tetap lengkap di memori
+   (statistik total, rata-rata, rentang dihitung dari SEMUA baris),
+   tapi yang dirender ke tabel hanya MAX_RENDER baris teratas supaya
+   browser tidak nge-freeze saat data puluhan ribu. */
+const MAX_RENDER = 5000;
+
 /* ── LIVE CARD helpers ── */
 function uv(id, val, suf = '') {
   const el = document.getElementById(id);
@@ -475,7 +494,12 @@ async function loadLog(inkubator) {
 
 loadLog('A');
 
-/* ── RENDER TABLE ── */
+/* ─────────────────────────────────────────────────────────
+   RENDER TABLE — dengan batas MAX_RENDER (Solusi A)
+   - Statistik (total, avg, range) tetap dihitung dari SELURUH rows
+   - Yang digambar ke DOM hanya MAX_RENDER baris teratas
+   - Baris notifikasi kuning muncul di bawah jika rows > MAX_RENDER
+   ───────────────────────────────────────────────────────── */
 function renderTable(rows) {
   const tbody     = document.getElementById('historyBody');
   const showCol7  = currentTab === 'A';
@@ -501,7 +525,10 @@ function renderTable(rows) {
   document.getElementById('sumRange').textContent       = oldest + ' → ' + newest;
   document.getElementById('summaryRow').style.display   = 'flex';
 
-  const html = rows.map((r, i) => {
+  // Batasi jumlah baris yang dirender
+  const visibleRows = rows.length > MAX_RENDER ? rows.slice(0, MAX_RENDER) : rows;
+
+  const html = visibleRows.map((r, i) => {
     const ts    = r.timestamp ? r.timestamp.replace('T',' ').replace('+07:00',' WIB') : '-';
     const suhu  = r.suhu      !== '' ? Number(r.suhu).toFixed(1)  : '-';
     const hum   = r.kelembapan!== '' ? r.kelembapan : '-';
@@ -533,7 +560,16 @@ function renderTable(rows) {
       <td>${badge(r.fan)}</td>
     </tr>`;
   }).join('');
-  tbody.innerHTML = html;
+
+  // Baris notifikasi jika data dipotong
+  const noticeRow = rows.length > MAX_RENDER
+    ? `<tr class="table-notice"><td colspan="${totalCols}">
+         Menampilkan ${MAX_RENDER.toLocaleString('id-ID')} baris teratas dari ${rows.length.toLocaleString('id-ID')} baris.
+         Persempit rentang tanggal atau pakai tombol interval untuk melihat sisanya.
+       </td></tr>`
+    : '';
+
+  tbody.innerHTML = html + noticeRow;
 }
 
 /* ── SAMPLING INTERVAL ── */
@@ -591,13 +627,10 @@ window.applyFilter = function() {
 };
 
 /* ─────────────────────────────────────────────────────────
-   RESET — dengan feedback spinner (Solusi B)
-   Urutan:
-     1) Bersihkan input tanggal + set interval ke "Semua"
-     2) Tampilkan spinner → beri tahu browser ini sedang bekerja
-     3) Pakai requestAnimationFrame + setTimeout(0) supaya browser
-        sempat menggambar spinner dulu, baru mulai render tabel.
-        Ini mencegah tombol terasa "hang".
+   RESET — Solusi A + B
+   - Bersihkan tanggal + set interval ke "Semua"
+   - Tampilkan spinner dulu (Solusi B) supaya user tahu tombol bekerja
+   - Render hanya MAX_RENDER baris (Solusi A) supaya cepat
    ───────────────────────────────────────────────────────── */
 window.resetFilter = function() {
   // 1) Bersihkan input tanggal
@@ -614,10 +647,11 @@ window.resetFilter = function() {
   const sub = document.getElementById('sectionSub');
   if (sub) sub.textContent = 'Menampilkan semua data';
 
-  // 4) Tampilkan spinner dulu
+  // 4) Tampilkan spinner dulu — beri tahu user tombol bekerja
   showLoading(true, currentTab);
 
-  // 5) Beri browser kesempatan menggambar spinner sebelum render berat
+  // 5) requestAnimationFrame + setTimeout(0) → biarkan browser
+  //    menggambar spinner dulu, baru mulai render tabel.
   requestAnimationFrame(() => {
     setTimeout(() => {
       const src = currentTab === 'A' ? allRowsA : allRowsB;
@@ -694,7 +728,10 @@ function showLoading(show, inkubator) {
   if (detail) detail.textContent = show && inkubator ? `(Inkubator ${inkubator})` : '';
 }
 
-/* ── EXPORT EXCEL (SheetJS via CDN) ── */
+/* ── EXPORT EXCEL (SheetJS via CDN) ──
+   Ekspor SELALU mengikuti filteredRows (data lengkap di memori),
+   bukan yang terlihat di tabel. Jadi walau tabel hanya menampilkan
+   1000 baris, Excel tetap berisi semua baris pada rentang/filter. */
 window.exportExcel = function() {
   if (!filteredRows || filteredRows.length === 0) {
     alert('Tidak ada data untuk diekspor.');
