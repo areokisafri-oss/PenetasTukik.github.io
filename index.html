@@ -632,9 +632,10 @@ window.resetFilter = function() {
 };
 
 /* ─────────────────────────────────────────────────────────
-   HAPUS SEMUA — Solusi 2 (chunked)
-   Ambil dulu semua key, lalu hapus per potongan (DELETE_CHUNK).
-   Ini menghindari error WRITE_TOO_BIG saat data > 16 MB.
+   HAPUS SEMUA — Solusi 2 + VERIFIKASI (Kemungkinan 2)
+   Setelah loop hapus selesai, baca ulang dari Firebase untuk
+   memastikan node benar-benar kosong. Kalau ada sisa, tampilkan
+   pesan jelas + jumlah sisa.
    ───────────────────────────────────────────────────────── */
 window.deleteAll = async function() {
   const step1 = confirm(
@@ -655,7 +656,7 @@ window.deleteAll = async function() {
   const sub = document.getElementById('sectionSub');
 
   try {
-    // 1) Ambil semua key dulu (key saja, ringan)
+    // 1) Ambil semua key
     const logRef = query(ref(db, `log${currentTab}`), orderByKey());
     const snap   = await get(logRef);
 
@@ -664,13 +665,12 @@ window.deleteAll = async function() {
       return;
     }
 
-    const keys = [];
+    const keys  = [];
     snap.forEach(child => keys.push(child.key));
+    const total = keys.length;
 
     // 2) Hapus per potongan (chunk)
-    const total   = keys.length;
-    let   deleted = 0;
-
+    let deleted = 0;
     for (let i = 0; i < total; i += DELETE_CHUNK) {
       const chunk   = keys.slice(i, i + DELETE_CHUNK);
       const updates = {};
@@ -679,20 +679,40 @@ window.deleteAll = async function() {
       await update(ref(db, `log${currentTab}`), updates);
       deleted += chunk.length;
 
-      if (sub) sub.textContent = `Menghapus… ${deleted.toLocaleString('id-ID')}/${total.toLocaleString('id-ID')}`;
+      if (sub) sub.textContent =
+        `Menghapus… ${deleted.toLocaleString('id-ID')}/${total.toLocaleString('id-ID')}`;
 
       // Beri kesempatan UI bernapas
       await new Promise(r => setTimeout(r, 0));
     }
 
-    // 3) Kosongkan state & tabel
+    // 3) VERIFIKASI — baca ulang dari Firebase
+    if (sub) sub.textContent = 'Memverifikasi…';
+    const verifySnap = await get(query(ref(db, `log${currentTab}`), orderByKey()));
+    const sisa = verifySnap.exists() ? verifySnap.size : 0;
+
+    if (sisa > 0) {
+      alert(
+        `⚠️ Verifikasi GAGAL.\n\n` +
+        `Masih ada ${sisa.toLocaleString('id-ID')} catatan tersisa di Firebase.\n\n` +
+        `Kemungkinan:\n` +
+        `• Alat IoT sedang mengirim data baru (cek kolom Waktu — kalau timestamp baru, ini penyebabnya)\n` +
+        `• Firebase Rules menolak sebagian write\n` +
+        `• Koneksi terputus di tengah proses`
+      );
+      // Sinkronkan tabel dengan kondisi sebenarnya
+      await loadLog(currentTab);
+      return;
+    }
+
+    // 4) Sukses — kosongkan state & tabel
     if (currentTab === 'A') { allRowsA = []; loadedA = true; }
     else                    { allRowsB = []; loadedB = true; }
 
     if (sub) sub.textContent = 'Riwayat kosong';
 
     renderTable([]);
-    alert(`Berhasil menghapus ${total.toLocaleString('id-ID')} catatan dari Inkubator ${currentTab}.`);
+    alert(`✅ Berhasil menghapus ${total.toLocaleString('id-ID')} catatan dari Inkubator ${currentTab}.`);
   } catch (err) {
     console.error('deleteAll error:', err);
     alert('Gagal menghapus: ' + err.message);
