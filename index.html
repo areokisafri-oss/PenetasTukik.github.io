@@ -350,9 +350,11 @@
 </main>
 
 <script type="module">
-import { initializeApp }    from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
-import { getDatabase, ref, onValue, query, orderByKey }
-                            from "https://www.gstatic.com/firebasejs/10.11.0/firebase-database.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
+import {
+  getDatabase, ref, onValue, query, orderByKey,
+  limitToLast, startAt, endAt, get
+} from "https://www.gstatic.com/firebasejs/10.11.0/firebase-database.js";
 
 /* ── CONFIG ── */
 const firebaseConfig = {
@@ -374,9 +376,13 @@ let currentTab      = 'A';
 let allRowsA        = [];
 let allRowsB        = [];
 let filteredRows    = [];
-let currentInterval = 'all';   // 'all' | 30 | 60 | 360 | 1440  (dalam menit)
+let currentInterval = 'all';   // 'all' | 30 | 60 | 360 | 1440  (menit)
 let loadedA         = false;
 let loadedB         = false;
+
+/* Batas jumlah baris yang ditarik dari server agar loading tidak lambat.
+   Jika butuh data lebih lama, gunakan filter tanggal (Dari/Sampai). */
+const MAX_ROWS = 5000;
 
 /* ── LIVE CARD helpers ── */
 function uv(id, val, suf = '') {
@@ -395,7 +401,7 @@ function setRelay(id, state) {
   el.className = 'relay-pill ' + (state ? 'on' : 'off');
 }
 
-/* ── LIVE LISTENERS ── */
+/* ── LIVE LISTENERS (realtime, tidak berubah) ── */
 onValue(ref(db,'inkubatorA/suhu'),       s => { uv('suhuA', s.val()); uv('lastUpdateA', fmtWIB()); });
 onValue(ref(db,'inkubatorA/kelembapan'), s => uv('kelembapanA', s.val()));
 onValue(ref(db,'inkubatorA/relay/lampu'),   s => setRelay('lampuA',   s.val()));
@@ -410,13 +416,23 @@ onValue(ref(db,'inkubatorB/relay/pompa'),   s => setRelay('pompaB',   s.val()));
 onValue(ref(db,'inkubatorB/relay/peltier'), s => setRelay('peltierB', s.val()));
 onValue(ref(db,'inkubatorB/relay/fan'),     s => setRelay('fanB',     s.val()));
 
-/* ── LOAD LOG (TANPA limitToLast → ambil SEMUA histori) ── */
-function loadLog(inkubator) {
+/* ─────────────────────────────────────────────────────────
+   LOAD LOG (perbaikan utama)
+   - Pakai get() sekali baca, bukan onValue
+   - Pakai limitToLast(MAX_ROWS) agar tidak menarik seluruh node
+   - Opsional fromEpoch / toEpoch → filter di server via startAt/endAt
+   ───────────────────────────────────────────────────────── */
+async function loadLog(inkubator, opts = {}) {
   showLoading(true, inkubator);
-  // PENTING: tidak ada limitToLast lagi, sehingga seluruh node logA / logB terbaca,
-  // bukan hanya 2000 record terakhir (yang dulunya hanya mencakup data hari ini saja).
-  const logRef = query(ref(db, `log${inkubator}`), orderByKey());
-  onValue(logRef, snap => {
+  try {
+    const parts = [orderByKey()];
+    if (opts.fromEpoch != null) parts.push(startAt(String(Math.floor(opts.fromEpoch))));
+    if (opts.toEpoch   != null) parts.push(endAt  (String(Math.floor(opts.toEpoch))));
+    parts.push(limitToLast(MAX_ROWS));
+
+    const logRef = query(ref(db, `log${inkubator}`), ...parts);
+    const snap   = await get(logRef);
+
     const rows = [];
     if (snap.exists()) {
       snap.forEach(child => {
@@ -435,6 +451,7 @@ function loadLog(inkubator) {
       });
       rows.reverse();  // terbaru di atas
     }
+
     if (inkubator === 'A') { allRowsA = rows; loadedA = true; }
     else                   { allRowsB = rows; loadedB = true; }
 
@@ -442,16 +459,24 @@ function loadLog(inkubator) {
       const sampled = samplingInterval(rows, currentInterval);
       renderTable(sampled);
     }
+  } catch (err) {
+    console.error('loadLog error:', err);
+    // Kalau error, tampilkan pesan di tabel supaya user tidak bingung
+    const tbody = document.getElementById('historyBody');
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="icon">⚠️</div><p>Gagal memuat data: ${err.message}</p></div></td></tr>`;
+    }
+  } finally {
     showLoading(false);
-  }, { onlyOnce: true });
+  }
 }
 
+/* Muat hanya tab aktif di awal → mempercepat loading pertama */
 loadLog('A');
-loadLog('B');
 
 /* ── RENDER TABLE ── */
 function renderTable(rows) {
-  const tbody = document.getElementById('historyBody');
+  const tbody  = document.getElementById('historyBody');
   const thCol7 = document.getElementById('thCol7');
 
   if (thCol7) thCol7.textContent = currentTab === 'A' ? 'Peltier' : 'Fan Ekstra';
@@ -518,7 +543,7 @@ function samplingInterval(rows, intervalMenit) {
   const slotMap = new Map();
 
   rows.forEach(r => {
-    const slotKey  = Math.floor(r.epoch / slotDetik);
+    const slotKey   = Math.floor(r.epoch / slotDetik);
     const slotStart = slotKey * slotDetik;
     const delta     = Math.abs(r.epoch - slotStart);
 
@@ -549,28 +574,46 @@ window.setInterval_ = function(val, btn) {
   applyFilter();
 };
 
-/* ── FILTER ── */
-window.applyFilter = function() {
+/* ─────────────────────────────────────────────────────────
+   FILTER
+   - Kalau ada tanggal → fetch dari server (startAt/endAt)
+     supaya hanya data rentang itu yang diunduh (jauh lebih cepat)
+   - Kalau tidak ada tanggal → pakai data di memori
+   ───────────────────────────────────────────────────────── */
+window.applyFilter = async function() {
   const from = document.getElementById('filterFrom').value;
   const to   = document.getElementById('filterTo').value;
-  let src    = currentTab === 'A' ? allRowsA : allRowsB;
 
   if (from || to) {
-    const fromEpoch = from ? new Date(from).getTime() / 1000 : 0;
-    const toEpoch   = to   ? new Date(to).getTime()   / 1000 : Infinity;
-    src = src.filter(r => r.epoch >= fromEpoch && r.epoch <= toEpoch);
+    const fromEpoch = from ? new Date(from).getTime() / 1000 : null;
+    const toEpoch   = to   ? new Date(to).getTime()   / 1000 : null;
+    await loadLog(currentTab, { fromEpoch, toEpoch });
+    return;
   }
 
-  const sampled = samplingInterval(src, currentInterval);
-  renderTable(sampled);
+  const src = currentTab === 'A' ? allRowsA : allRowsB;
+  renderTable(samplingInterval(src, currentInterval));
 };
 
+/* ── RESET (diperbaiki) ── */
 window.resetFilter = function() {
+  // 1. Bersihkan tanggal
   document.getElementById('filterFrom').value = '';
   document.getElementById('filterTo').value   = '';
-  const src     = currentTab === 'A' ? allRowsA : allRowsB;
-  const sampled = samplingInterval(src, currentInterval);
-  renderTable(sampled);
+
+  // 2. Kembalikan interval ke "Semua"
+  currentInterval = 'all';
+  document.querySelectorAll('.itv-btn').forEach(b => b.classList.remove('active'));
+  const firstBtn = document.querySelector('.itv-btn');
+  if (firstBtn) firstBtn.classList.add('active');
+
+  // 3. Perbarui label section
+  const sub = document.getElementById('sectionSub');
+  if (sub) sub.textContent = 'Menampilkan semua data';
+
+  // 4. Muat ulang data dari server (bukan hanya dari memori),
+  //    karena bisa jadi allRowsX sebelumnya sudah tersaring tanggal
+  loadLog(currentTab);
 };
 
 /* ── TAB SWITCH ── */
@@ -578,25 +621,25 @@ window.switchTab = function(tab, btn) {
   currentTab = tab;
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
+
   document.getElementById('filterFrom').value = '';
   document.getElementById('filterTo').value   = '';
-  const src = tab === 'A' ? allRowsA : allRowsB;
+
   const isLoaded = tab === 'A' ? loadedA : loadedB;
   if (!isLoaded) {
-    showLoading(true, tab);
-    loadLog(tab);
+    loadLog(tab);                     // async lazy load
   } else {
-    const sampled = samplingInterval(src, currentInterval);
-    renderTable(sampled);
+    const src = tab === 'A' ? allRowsA : allRowsB;
+    renderTable(samplingInterval(src, currentInterval));
   }
 };
 
 /* ── LOADING ── */
 function showLoading(show, inkubator) {
-  document.getElementById('loading').style.display = show ? 'block' : 'none';
-  document.getElementById('tableWrap').style.display = show ? 'none' : 'block';
+  document.getElementById('loading').style.display     = show ? 'block' : 'none';
+  document.getElementById('tableWrap').style.display   = show ? 'none'  : 'block';
   const detail = document.getElementById('loadingDetail');
-  if (detail) detail.textContent = show && inkubator ? `(Inkubator ${inkubator}, seluruh data)` : '';
+  if (detail) detail.textContent = show && inkubator ? `(Inkubator ${inkubator})` : '';
 }
 
 /* ── EXPORT EXCEL (SheetJS via CDN) ── */
