@@ -129,6 +129,8 @@
     .btn-primary:hover { background:#00e0b8; }
     .btn-outline { background:transparent; border:1px solid var(--border); color:var(--text); }
     .btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+    .btn-warn    { background:transparent; border:1px solid var(--warn); color: var(--warn); }
+    .btn-warn:hover { background:#2a1f08; }
     .btn-danger  { background:transparent; border:1px solid var(--danger); color:var(--danger); }
     .btn-danger:hover { background:#2a1416; }
     .btn-excel { background:#1a6b3c; color:#e2e8f0; }
@@ -319,6 +321,8 @@
       <input type="datetime-local" id="filterTo">
       <button class="btn btn-primary" onclick="applyFilter()">Terapkan</button>
       <button class="btn btn-outline" onclick="resetFilter()">Reset</button>
+      <button class="btn btn-warn" onclick="clearDashboardView()">🧹 Kosongkan Tampilan</button>
+      <button class="btn btn-outline" onclick="restoreDashboardView()">👁 Tampilkan Lagi</button>
       <button class="btn btn-danger" onclick="deleteAll()">🗑 Hapus Semua</button>
       <button class="btn btn-excel" onclick="exportExcel()">⬇ Excel</button>
     </div>
@@ -379,11 +383,36 @@ let currentInterval = 'all';
 let loadedA         = false;
 let loadedB         = false;
 
-/* Batas baris yang digambar ke DOM (Solusi A) */
+/* Batas baris yang digambar ke DOM */
 const MAX_RENDER = 1000;
 
-/* Ukuran chunk saat hapus (Solusi 2) */
+/* Ukuran chunk saat hapus */
 const DELETE_CHUNK = 1000;
+
+/* ─────────────────────────────────────────────────────────
+   LOCALSTORAGE CUTOFF — "Kosongkan Tampilan"
+   Data dengan epoch ≤ hideBefore akan disembunyikan dari
+   dashboard, TAPI tetap ada di Firebase.
+   Nilai 0 = tidak ada yang disembunyikan.
+   ───────────────────────────────────────────────────────── */
+const HIDE_KEY = 'penetas_hideBefore';
+
+function getHideBefore() {
+  const v = localStorage.getItem(HIDE_KEY);
+  return v ? Number(v) : 0;
+}
+function setHideBefore(epoch) {
+  if (epoch > 0) localStorage.setItem(HIDE_KEY, String(epoch));
+  else           localStorage.removeItem(HIDE_KEY);
+}
+
+/* Ambil baris yang LOLOS filter "Kosongkan Tampilan" */
+function visibleSourceRows() {
+  const src = currentTab === 'A' ? allRowsA : allRowsB;
+  const cut = getHideBefore();
+  if (cut > 0) return src.filter(r => r.epoch > cut);
+  return src;
+}
 
 /* ── LIVE CARD helpers ── */
 function uv(id, val, suf = '') {
@@ -466,7 +495,8 @@ async function loadLog(inkubator) {
     else                   { allRowsB = rows; loadedB = true; }
 
     if (inkubator === currentTab) {
-      renderTable(samplingInterval(rows, currentInterval));
+      const src = visibleSourceRows();
+      renderTable(samplingInterval(src, currentInterval));
     }
   } catch (err) {
     console.error('loadLog error:', err);
@@ -596,7 +626,7 @@ window.setInterval_ = function(val, btn) {
 window.applyFilter = function() {
   const from = document.getElementById('filterFrom').value;
   const to   = document.getElementById('filterTo').value;
-  let src    = currentTab === 'A' ? allRowsA : allRowsB;
+  let src    = visibleSourceRows();     // ← sudah difilter "Kosongkan Tampilan"
 
   if (from || to) {
     const fromEpoch = from ? new Date(from).getTime() / 1000 : 0;
@@ -607,7 +637,7 @@ window.applyFilter = function() {
   renderTable(samplingInterval(src, currentInterval));
 };
 
-/* ── RESET (Solusi A + B) ── */
+/* ── RESET ── */
 window.resetFilter = function() {
   document.getElementById('filterFrom').value = '';
   document.getElementById('filterTo').value   = '';
@@ -624,7 +654,7 @@ window.resetFilter = function() {
 
   requestAnimationFrame(() => {
     setTimeout(() => {
-      const src = currentTab === 'A' ? allRowsA : allRowsB;
+      const src = visibleSourceRows();
       renderTable(src);
       showLoading(false);
     }, 0);
@@ -632,9 +662,69 @@ window.resetFilter = function() {
 };
 
 /* ─────────────────────────────────────────────────────────
+   KOSONGKAN TAMPILAN — sembunyikan riwayat di dashboard
+   TANPA menghapus dari Firebase.
+   Menyimpan cutoff di localStorage → tetap tersembunyi
+   walau halaman di-refresh.
+   ───────────────────────────────────────────────────────── */
+window.clearDashboardView = function() {
+  const total = currentTab === 'A' ? allRowsA.length : allRowsB.length;
+  if (total === 0) {
+    alert('Tidak ada data untuk disembunyikan.');
+    return;
+  }
+
+  if (!confirm(
+    `🧹 Sembunyikan riwayat Inkubator ${currentTab} dari dashboard?\n\n` +
+    `• Dashboard akan tampak kosong.\n` +
+    `• Data TETAP AMAN di Firebase (tidak dihapus).\n` +
+    `• Bisa dimunculkan lagi dengan tombol "Tampilkan Lagi".`
+  )) return;
+
+  // Simpan cutoff = waktu sekarang
+  const cutoff = Math.floor(Date.now() / 1000);
+  setHideBefore(cutoff);
+
+  // Render ulang — pasti kosong karena semua epoch ≤ cutoff
+  showLoading(true, currentTab);
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      const src = visibleSourceRows();
+      renderTable(src);
+      showLoading(false);
+      const sub = document.getElementById('sectionSub');
+      if (sub) sub.textContent = 'Riwayat disembunyikan dari dashboard (data tetap di Firebase)';
+    }, 0);
+  });
+};
+
+/* ─────────────────────────────────────────────────────────
+   TAMPILKAN LAGI — batalkan "Kosongkan Tampilan"
+   ───────────────────────────────────────────────────────── */
+window.restoreDashboardView = function() {
+  const cut = getHideBefore();
+  if (cut === 0) {
+    alert('Tidak ada riwayat yang sedang disembunyikan.');
+    return;
+  }
+
+  setHideBefore(0);
+
+  showLoading(true, currentTab);
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      const src = visibleSourceRows();
+      renderTable(src);
+      showLoading(false);
+      const sub = document.getElementById('sectionSub');
+      if (sub) sub.textContent = 'Menampilkan semua data';
+    }, 0);
+  });
+};
+
+/* ─────────────────────────────────────────────────────────
    HAPUS SEMUA — Solusi 2 (chunked)
-   Ambil dulu semua key, lalu hapus per potongan (DELETE_CHUNK).
-   Ini menghindari error WRITE_TOO_BIG saat data > 16 MB.
+   Menghapus permanen dari Firebase.
    ───────────────────────────────────────────────────────── */
 window.deleteAll = async function() {
   const step1 = confirm(
@@ -655,7 +745,6 @@ window.deleteAll = async function() {
   const sub = document.getElementById('sectionSub');
 
   try {
-    // 1) Ambil semua key dulu (key saja, ringan)
     const logRef = query(ref(db, `log${currentTab}`), orderByKey());
     const snap   = await get(logRef);
 
@@ -667,7 +756,6 @@ window.deleteAll = async function() {
     const keys = [];
     snap.forEach(child => keys.push(child.key));
 
-    // 2) Hapus per potongan (chunk)
     const total   = keys.length;
     let   deleted = 0;
 
@@ -680,17 +768,17 @@ window.deleteAll = async function() {
       deleted += chunk.length;
 
       if (sub) sub.textContent = `Menghapus… ${deleted.toLocaleString('id-ID')}/${total.toLocaleString('id-ID')}`;
-
-      // Beri kesempatan UI bernapas
       await new Promise(r => setTimeout(r, 0));
     }
 
-    // 3) Kosongkan state & tabel
+    // Kosongkan state & reset cutoff (data sudah benar-benar kosong)
     if (currentTab === 'A') { allRowsA = []; loadedA = true; }
     else                    { allRowsB = []; loadedB = true; }
 
-    if (sub) sub.textContent = 'Riwayat kosong';
+    // Cutoff tidak perlu lagi — hapus supaya konsisten
+    setHideBefore(0);
 
+    if (sub) sub.textContent = 'Riwayat kosong';
     renderTable([]);
     alert(`Berhasil menghapus ${total.toLocaleString('id-ID')} catatan dari Inkubator ${currentTab}.`);
   } catch (err) {
@@ -716,7 +804,7 @@ window.switchTab = function(tab, btn) {
   if (!isLoaded) {
     loadLog(tab);
   } else {
-    const src = tab === 'A' ? allRowsA : allRowsB;
+    const src = visibleSourceRows();
     renderTable(samplingInterval(src, currentInterval));
   }
 };
