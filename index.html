@@ -93,6 +93,7 @@
     .metric-unit { font-size:12px; color:var(--muted); margin-left:3px; }
 
     .relays { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+    .relays-3 { grid-template-columns:repeat(3,1fr); }
     .relay-pill {
       border-radius:8px; padding:7px 6px; text-align:center;
       font-size:11px; font-weight:600; letter-spacing:.3px;
@@ -128,6 +129,8 @@
     .btn-primary:hover { background:#00e0b8; }
     .btn-outline { background:transparent; border:1px solid var(--border); color:var(--text); }
     .btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+    .btn-danger  { background:transparent; border:1px solid var(--danger); color:var(--danger); }
+    .btn-danger:hover { background:#2a1416; }
     .btn-excel { background:#1a6b3c; color:#e2e8f0; }
     .btn-excel:hover { background:#1f8048; }
 
@@ -177,6 +180,17 @@
     tbody tr:last-child td { border-bottom:none; }
     tbody tr:hover td { background:var(--surface2); }
 
+    .table-notice td {
+      text-align:center;
+      font-family: 'Inter', sans-serif;
+      font-size: 11px;
+      color: var(--warn);
+      background: #2a1f08;
+      padding: 8px 14px;
+      border-bottom: none;
+      letter-spacing: .3px;
+    }
+
     .badge {
       display:inline-block; padding:2px 8px; border-radius:99px;
       font-size:11px; font-weight:600;
@@ -212,6 +226,7 @@
       main { padding:16px; }
       .cards-row { grid-template-columns:1fr; }
       .relays { grid-template-columns:repeat(2,1fr); }
+      .relays-3 { grid-template-columns:repeat(3,1fr); }
       header { padding:14px 16px; }
     }
   </style>
@@ -258,7 +273,7 @@
       <div class="card-footer">Diperbarui: <span id="lastUpdateA">--</span></div>
     </div>
 
-    <!-- Inkubator B -->
+    <!-- Inkubator B (tanpa Peltier) -->
     <div class="card card-b">
       <div class="card-header">
         <div class="card-dot"></div>
@@ -275,10 +290,9 @@
           <div class="metric-value"><span id="kelembapanB">--</span><span class="metric-unit">%</span></div>
         </div>
       </div>
-      <div class="relays">
+      <div class="relays relays-3">
         <div class="relay-pill off" id="lampuB">Lampu</div>
         <div class="relay-pill off" id="pompaB">Pompa</div>
-        <div class="relay-pill off" id="peltierB">Peltier</div>
         <div class="relay-pill off" id="fanB">Fan</div>
       </div>
       <div class="card-footer">Diperbarui: <span id="lastUpdateB">--</span></div>
@@ -292,7 +306,6 @@
       <div class="section-sub" id="sectionSub">Menampilkan semua data</div>
     </div>
     <div class="filter-bar">
-      <!-- Interval sampling -->
       <div class="interval-toggle">
         <button class="itv-btn active" onclick="setInterval_('all',  this)">Semua</button>
         <button class="itv-btn"        onclick="setInterval_(30,    this)">30 Menit</button>
@@ -306,17 +319,16 @@
       <input type="datetime-local" id="filterTo">
       <button class="btn btn-primary" onclick="applyFilter()">Terapkan</button>
       <button class="btn btn-outline" onclick="resetFilter()">Reset</button>
+      <button class="btn btn-danger" onclick="deleteAll()">🗑 Hapus Semua</button>
       <button class="btn btn-excel" onclick="exportExcel()">⬇ Excel</button>
     </div>
   </div>
 
-  <!-- Tabs A / B -->
   <div class="tabs">
     <button class="tab active" onclick="switchTab('A', this)">Inkubator A</button>
     <button class="tab" onclick="switchTab('B', this)">Inkubator B</button>
   </div>
 
-  <!-- Ringkasan -->
   <div class="summary-row" id="summaryRow" style="display:none">
     <div class="chip">Total: <strong id="sumTotal">0</strong> catatan</div>
     <div class="chip">Suhu rata-rata: <strong id="sumSuhu">--</strong> °C</div>
@@ -328,19 +340,7 @@
 
   <div class="table-wrap" id="tableWrap">
     <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Waktu</th>
-          <th>Suhu (°C)</th>
-          <th>Kelembapan (%)</th>
-          <th>ADC</th>
-          <th>Lampu</th>
-          <th>Pompa</th>
-          <th id="thCol7">Peltier</th>
-          <th>Fan</th>
-        </tr>
-      </thead>
+      <thead id="tableHead"></thead>
       <tbody id="historyBody">
         <tr><td colspan="9"><div class="empty-state"><div class="icon">📊</div><p>Belum ada data. Pilih rentang waktu dan klik Filter.</p></div></td></tr>
       </tbody>
@@ -352,7 +352,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
 import {
-  getDatabase, ref, onValue, query, orderByKey, get
+  getDatabase, ref, onValue, query, orderByKey, get, remove, update
 } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-database.js";
 
 /* ── CONFIG ── */
@@ -379,6 +379,12 @@ let currentInterval = 'all';
 let loadedA         = false;
 let loadedB         = false;
 
+/* Batas baris yang digambar ke DOM (Solusi A) */
+const MAX_RENDER = 1000;
+
+/* Ukuran chunk saat hapus (Solusi 2) */
+const DELETE_CHUNK = 1000;
+
 /* ── LIVE CARD helpers ── */
 function uv(id, val, suf = '') {
   const el = document.getElementById(id);
@@ -396,7 +402,7 @@ function setRelay(id, state) {
   el.className = 'relay-pill ' + (state ? 'on' : 'off');
 }
 
-/* ── LIVE LISTENERS (realtime) ── */
+/* ── LIVE LISTENERS ── */
 onValue(ref(db,'inkubatorA/suhu'),       s => { uv('suhuA', s.val()); uv('lastUpdateA', fmtWIB()); });
 onValue(ref(db,'inkubatorA/kelembapan'), s => uv('kelembapanA', s.val()));
 onValue(ref(db,'inkubatorA/relay/lampu'),   s => setRelay('lampuA',   s.val()));
@@ -408,14 +414,29 @@ onValue(ref(db,'inkubatorB/suhu'),       s => { uv('suhuB', s.val()); uv('lastUp
 onValue(ref(db,'inkubatorB/kelembapan'), s => uv('kelembapanB', s.val()));
 onValue(ref(db,'inkubatorB/relay/lampu'),   s => setRelay('lampuB',   s.val()));
 onValue(ref(db,'inkubatorB/relay/pompa'),   s => setRelay('pompaB',   s.val()));
-onValue(ref(db,'inkubatorB/relay/peltier'), s => setRelay('peltierB', s.val()));
 onValue(ref(db,'inkubatorB/relay/fan'),     s => setRelay('fanB',     s.val()));
 
-/* ─────────────────────────────────────────────────────────
-   LOAD LOG — TAMPILKAN SEMUA DATA
-   - Pakai get() sekali baca (bukan onValue berulang)
-   - TANPA limitToLast → seluruh node logX ditarik
-   ───────────────────────────────────────────────────────── */
+/* ── RENDER HEADER TABEL ── */
+function renderTableHead() {
+  const thead = document.getElementById('tableHead');
+  if (!thead) return;
+
+  const isA = currentTab === 'A';
+  thead.innerHTML = `
+    <tr>
+      <th>#</th>
+      <th>Waktu</th>
+      <th>Suhu (°C)</th>
+      <th>Kelembapan (%)</th>
+      <th>ADC</th>
+      <th>Lampu</th>
+      <th>Pompa</th>
+      ${isA ? '<th>Peltier</th>' : ''}
+      <th>Fan</th>
+    </tr>`;
+}
+
+/* ── LOAD LOG ── */
 async function loadLog(inkubator) {
   showLoading(true, inkubator);
   try {
@@ -438,7 +459,7 @@ async function loadLog(inkubator) {
           fan:         d.fan         ?? false
         });
       });
-      rows.reverse();  // terbaru di atas
+      rows.reverse();
     }
 
     if (inkubator === 'A') { allRowsA = rows; loadedA = true; }
@@ -451,27 +472,27 @@ async function loadLog(inkubator) {
     console.error('loadLog error:', err);
     const tbody = document.getElementById('historyBody');
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="icon">⚠️</div><p>Gagal memuat data: ${err.message}</p></div></td></tr>`;
+      const cols = currentTab === 'A' ? 9 : 8;
+      tbody.innerHTML = `<tr><td colspan="${cols}"><div class="empty-state"><div class="icon">⚠️</div><p>Gagal memuat data: ${err.message}</p></div></td></tr>`;
     }
   } finally {
     showLoading(false);
   }
 }
 
-/* Muat hanya tab aktif di awal → tab B di-lazy saat diklik */
 loadLog('A');
 
 /* ── RENDER TABLE ── */
 function renderTable(rows) {
-  const tbody  = document.getElementById('historyBody');
-  const thCol7 = document.getElementById('thCol7');
+  const tbody     = document.getElementById('historyBody');
+  const showCol7  = currentTab === 'A';
+  const totalCols = showCol7 ? 9 : 8;
 
-  if (thCol7) thCol7.textContent = currentTab === 'A' ? 'Peltier' : 'Fan Ekstra';
-
+  renderTableHead();
   filteredRows = rows;
 
   if (rows.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="icon">📭</div><p>Tidak ada data pada rentang waktu ini.</p></div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${totalCols}"><div class="empty-state"><div class="icon">📭</div><p>Tidak ada data. Riwayat kosong.</p></div></td></tr>`;
     document.getElementById('summaryRow').style.display = 'none';
     return;
   }
@@ -487,7 +508,9 @@ function renderTable(rows) {
   document.getElementById('sumRange').textContent       = oldest + ' → ' + newest;
   document.getElementById('summaryRow').style.display   = 'flex';
 
-  const html = rows.map((r, i) => {
+  const visibleRows = rows.length > MAX_RENDER ? rows.slice(0, MAX_RENDER) : rows;
+
+  const html = visibleRows.map((r, i) => {
     const ts    = r.timestamp ? r.timestamp.replace('T',' ').replace('+07:00',' WIB') : '-';
     const suhu  = r.suhu      !== '' ? Number(r.suhu).toFixed(1)  : '-';
     const hum   = r.kelembapan!== '' ? r.kelembapan : '-';
@@ -505,6 +528,8 @@ function renderTable(rows) {
       slotBadge = `<span class="slot-label">Slot ${fixHh}:${mm}</span>`;
     }
 
+    const col7Td = showCol7 ? `<td>${badge(r.peltier)}</td>` : '';
+
     return `<tr>
       <td style="color:var(--muted)">${i+1}</td>
       <td>${ts}${slotBadge}</td>
@@ -513,11 +538,19 @@ function renderTable(rows) {
       <td style="color:var(--muted)">${adc}</td>
       <td>${badge(r.lampu)}</td>
       <td>${badge(r.pompa)}</td>
-      <td>${badge(r.peltier)}</td>
+      ${col7Td}
       <td>${badge(r.fan)}</td>
     </tr>`;
   }).join('');
-  tbody.innerHTML = html;
+
+  const noticeRow = rows.length > MAX_RENDER
+    ? `<tr class="table-notice"><td colspan="${totalCols}">
+         Menampilkan ${MAX_RENDER.toLocaleString('id-ID')} baris teratas dari ${rows.length.toLocaleString('id-ID')} baris.
+         Persempit rentang tanggal atau pakai tombol interval untuk melihat sisanya.
+       </td></tr>`
+    : '';
+
+  tbody.innerHTML = html + noticeRow;
 }
 
 /* ── SAMPLING INTERVAL ── */
@@ -559,7 +592,7 @@ window.setInterval_ = function(val, btn) {
   applyFilter();
 };
 
-/* ── FILTER (di memori, data sudah lengkap) ── */
+/* ── FILTER ── */
 window.applyFilter = function() {
   const from = document.getElementById('filterFrom').value;
   const to   = document.getElementById('filterTo').value;
@@ -574,7 +607,7 @@ window.applyFilter = function() {
   renderTable(samplingInterval(src, currentInterval));
 };
 
-/* ── RESET ── */
+/* ── RESET (Solusi A + B) ── */
 window.resetFilter = function() {
   document.getElementById('filterFrom').value = '';
   document.getElementById('filterTo').value   = '';
@@ -587,8 +620,85 @@ window.resetFilter = function() {
   const sub = document.getElementById('sectionSub');
   if (sub) sub.textContent = 'Menampilkan semua data';
 
-  const src = currentTab === 'A' ? allRowsA : allRowsB;
-  renderTable(samplingInterval(src, currentInterval));
+  showLoading(true, currentTab);
+
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      const src = currentTab === 'A' ? allRowsA : allRowsB;
+      renderTable(src);
+      showLoading(false);
+    }, 0);
+  });
+};
+
+/* ─────────────────────────────────────────────────────────
+   HAPUS SEMUA — Solusi 2 (chunked)
+   Ambil dulu semua key, lalu hapus per potongan (DELETE_CHUNK).
+   Ini menghindari error WRITE_TOO_BIG saat data > 16 MB.
+   ───────────────────────────────────────────────────────── */
+window.deleteAll = async function() {
+  const step1 = confirm(
+    `⚠️ HAPUS SELURUH riwayat Inkubator ${currentTab} dari Firebase?\n\n` +
+    `Semua isi node "log${currentTab}" akan dihapus permanen dan tidak bisa dikembalikan.`
+  );
+  if (!step1) return;
+
+  const typed = prompt(
+    `Ketik HAPUS (huruf besar) untuk konfirmasi penghapusan Inkubator ${currentTab}:`
+  );
+  if (typed !== 'HAPUS') {
+    alert('Dibatalkan. Data tidak dihapus.');
+    return;
+  }
+
+  showLoading(true, currentTab);
+  const sub = document.getElementById('sectionSub');
+
+  try {
+    // 1) Ambil semua key dulu (key saja, ringan)
+    const logRef = query(ref(db, `log${currentTab}`), orderByKey());
+    const snap   = await get(logRef);
+
+    if (!snap.exists()) {
+      alert('Node sudah kosong. Tidak ada data untuk dihapus.');
+      return;
+    }
+
+    const keys = [];
+    snap.forEach(child => keys.push(child.key));
+
+    // 2) Hapus per potongan (chunk)
+    const total   = keys.length;
+    let   deleted = 0;
+
+    for (let i = 0; i < total; i += DELETE_CHUNK) {
+      const chunk   = keys.slice(i, i + DELETE_CHUNK);
+      const updates = {};
+      chunk.forEach(k => { updates[k] = null; });
+
+      await update(ref(db, `log${currentTab}`), updates);
+      deleted += chunk.length;
+
+      if (sub) sub.textContent = `Menghapus… ${deleted.toLocaleString('id-ID')}/${total.toLocaleString('id-ID')}`;
+
+      // Beri kesempatan UI bernapas
+      await new Promise(r => setTimeout(r, 0));
+    }
+
+    // 3) Kosongkan state & tabel
+    if (currentTab === 'A') { allRowsA = []; loadedA = true; }
+    else                    { allRowsB = []; loadedB = true; }
+
+    if (sub) sub.textContent = 'Riwayat kosong';
+
+    renderTable([]);
+    alert(`Berhasil menghapus ${total.toLocaleString('id-ID')} catatan dari Inkubator ${currentTab}.`);
+  } catch (err) {
+    console.error('deleteAll error:', err);
+    alert('Gagal menghapus: ' + err.message);
+  } finally {
+    showLoading(false);
+  }
 };
 
 /* ── TAB SWITCH ── */
@@ -597,12 +707,14 @@ window.switchTab = function(tab, btn) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
 
+  renderTableHead();
+
   document.getElementById('filterFrom').value = '';
   document.getElementById('filterTo').value   = '';
 
   const isLoaded = tab === 'A' ? loadedA : loadedB;
   if (!isLoaded) {
-    loadLog(tab);                     // lazy load
+    loadLog(tab);
   } else {
     const src = tab === 'A' ? allRowsA : allRowsB;
     renderTable(samplingInterval(src, currentInterval));
@@ -634,27 +746,31 @@ window.exportExcel = function() {
   }
 
   function doExport() {
-    const col7 = currentTab === 'A' ? 'Peltier' : 'Fan Ekstra';
-    const header = ['No','Waktu','Suhu (°C)','Kelembapan (%)','ADC','Lampu','Pompa', col7,'Fan'];
+    const isA = currentTab === 'A';
+    const header = isA
+      ? ['No','Waktu','Suhu (°C)','Kelembapan (%)','ADC','Lampu','Pompa','Peltier','Fan']
+      : ['No','Waktu','Suhu (°C)','Kelembapan (%)','ADC','Lampu','Pompa','Fan'];
 
-    const data = [header, ...filteredRows.map((r, i) => [
-      i + 1,
-      r.timestamp ? r.timestamp.replace('T',' ').replace('+07:00','') : '-',
-      r.suhu       !== '' ? Number(r.suhu).toFixed(1)  : '-',
-      r.kelembapan !== '' ? r.kelembapan                : '-',
-      r.adc        !== '' ? Number(r.adc).toFixed(0)    : '-',
-      r.lampu    ? 'ON' : 'OFF',
-      r.pompa    ? 'ON' : 'OFF',
-      r.peltier  ? 'ON' : 'OFF',
-      r.fan      ? 'ON' : 'OFF'
-    ])];
+    const data = [header, ...filteredRows.map((r, i) => {
+      const base = [
+        i + 1,
+        r.timestamp ? r.timestamp.replace('T',' ').replace('+07:00','') : '-',
+        r.suhu       !== '' ? Number(r.suhu).toFixed(1)  : '-',
+        r.kelembapan !== '' ? r.kelembapan                : '-',
+        r.adc        !== '' ? Number(r.adc).toFixed(0)    : '-',
+        r.lampu    ? 'ON' : 'OFF',
+        r.pompa    ? 'ON' : 'OFF'
+      ];
+      const tail = [r.fan ? 'ON' : 'OFF'];
+      if (isA) base.push(r.peltier ? 'ON' : 'OFF');
+      return [...base, ...tail];
+    })];
 
     const ws = window.XLSX.utils.aoa_to_sheet(data);
 
-    ws['!cols'] = [
-      {wch:5},{wch:22},{wch:12},{wch:17},{wch:10},
-      {wch:8},{wch:8},{wch:10},{wch:8}
-    ];
+    ws['!cols'] = isA
+      ? [{wch:5},{wch:22},{wch:12},{wch:17},{wch:10},{wch:8},{wch:8},{wch:10},{wch:8}]
+      : [{wch:5},{wch:22},{wch:12},{wch:17},{wch:10},{wch:8},{wch:8},{wch:8}];
 
     const wb = window.XLSX.utils.book_new();
     window.XLSX.utils.book_append_sheet(wb, ws, `Inkubator ${currentTab}`);
