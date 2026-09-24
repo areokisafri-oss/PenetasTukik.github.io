@@ -180,7 +180,6 @@
     tbody tr:last-child td { border-bottom:none; }
     tbody tr:hover td { background:var(--surface2); }
 
-    /* Baris notifikasi di dalam tabel (batas render) */
     .table-notice td {
       text-align:center;
       font-family: 'Inter', sans-serif;
@@ -307,7 +306,6 @@
       <div class="section-sub" id="sectionSub">Menampilkan semua data</div>
     </div>
     <div class="filter-bar">
-      <!-- Interval sampling -->
       <div class="interval-toggle">
         <button class="itv-btn active" onclick="setInterval_('all',  this)">Semua</button>
         <button class="itv-btn"        onclick="setInterval_(30,    this)">30 Menit</button>
@@ -326,13 +324,11 @@
     </div>
   </div>
 
-  <!-- Tabs A / B -->
   <div class="tabs">
     <button class="tab active" onclick="switchTab('A', this)">Inkubator A</button>
     <button class="tab" onclick="switchTab('B', this)">Inkubator B</button>
   </div>
 
-  <!-- Ringkasan -->
   <div class="summary-row" id="summaryRow" style="display:none">
     <div class="chip">Total: <strong id="sumTotal">0</strong> catatan</div>
     <div class="chip">Suhu rata-rata: <strong id="sumSuhu">--</strong> °C</div>
@@ -356,7 +352,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
 import {
-  getDatabase, ref, onValue, query, orderByKey, get, remove
+  getDatabase, ref, onValue, query, orderByKey, get, remove, update
 } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-database.js";
 
 /* ── CONFIG ── */
@@ -383,12 +379,11 @@ let currentInterval = 'all';
 let loadedA         = false;
 let loadedB         = false;
 
-/* ── KONFIGURASI RENDER (Solusi A) ──
-   Batas jumlah baris yang digambar ke DOM. Data tetap lengkap di memori
-   (statistik total, rata-rata, rentang dihitung dari SEMUA baris),
-   tapi yang dirender ke tabel hanya MAX_RENDER baris teratas supaya
-   browser tidak nge-freeze saat data puluhan ribu. */
-const MAX_RENDER = 5000;
+/* Batas baris yang digambar ke DOM (Solusi A) */
+const MAX_RENDER = 1000;
+
+/* Ukuran chunk saat hapus (Solusi 2) */
+const DELETE_CHUNK = 1000;
 
 /* ── LIVE CARD helpers ── */
 function uv(id, val, suf = '') {
@@ -420,13 +415,8 @@ onValue(ref(db,'inkubatorB/kelembapan'), s => uv('kelembapanB', s.val()));
 onValue(ref(db,'inkubatorB/relay/lampu'),   s => setRelay('lampuB',   s.val()));
 onValue(ref(db,'inkubatorB/relay/pompa'),   s => setRelay('pompaB',   s.val()));
 onValue(ref(db,'inkubatorB/relay/fan'),     s => setRelay('fanB',     s.val()));
-/* Listener peltier Inkubator B dihapus — pill-nya juga sudah dihapus. */
 
-/* ─────────────────────────────────────────────────────────
-   RENDER HEADER TABEL
-   - Inkubator A → 9 kolom (termasuk Peltier)
-   - Inkubator B → 8 kolom (tanpa Peltier)
-   ───────────────────────────────────────────────────────── */
+/* ── RENDER HEADER TABEL ── */
 function renderTableHead() {
   const thead = document.getElementById('tableHead');
   if (!thead) return;
@@ -446,9 +436,7 @@ function renderTableHead() {
     </tr>`;
 }
 
-/* ─────────────────────────────────────────────────────────
-   LOAD LOG
-   ───────────────────────────────────────────────────────── */
+/* ── LOAD LOG ── */
 async function loadLog(inkubator) {
   showLoading(true, inkubator);
   try {
@@ -494,12 +482,7 @@ async function loadLog(inkubator) {
 
 loadLog('A');
 
-/* ─────────────────────────────────────────────────────────
-   RENDER TABLE — dengan batas MAX_RENDER (Solusi A)
-   - Statistik (total, avg, range) tetap dihitung dari SELURUH rows
-   - Yang digambar ke DOM hanya MAX_RENDER baris teratas
-   - Baris notifikasi kuning muncul di bawah jika rows > MAX_RENDER
-   ───────────────────────────────────────────────────────── */
+/* ── RENDER TABLE ── */
 function renderTable(rows) {
   const tbody     = document.getElementById('historyBody');
   const showCol7  = currentTab === 'A';
@@ -525,7 +508,6 @@ function renderTable(rows) {
   document.getElementById('sumRange').textContent       = oldest + ' → ' + newest;
   document.getElementById('summaryRow').style.display   = 'flex';
 
-  // Batasi jumlah baris yang dirender
   const visibleRows = rows.length > MAX_RENDER ? rows.slice(0, MAX_RENDER) : rows;
 
   const html = visibleRows.map((r, i) => {
@@ -561,7 +543,6 @@ function renderTable(rows) {
     </tr>`;
   }).join('');
 
-  // Baris notifikasi jika data dipotong
   const noticeRow = rows.length > MAX_RENDER
     ? `<tr class="table-notice"><td colspan="${totalCols}">
          Menampilkan ${MAX_RENDER.toLocaleString('id-ID')} baris teratas dari ${rows.length.toLocaleString('id-ID')} baris.
@@ -626,32 +607,21 @@ window.applyFilter = function() {
   renderTable(samplingInterval(src, currentInterval));
 };
 
-/* ─────────────────────────────────────────────────────────
-   RESET — Solusi A + B
-   - Bersihkan tanggal + set interval ke "Semua"
-   - Tampilkan spinner dulu (Solusi B) supaya user tahu tombol bekerja
-   - Render hanya MAX_RENDER baris (Solusi A) supaya cepat
-   ───────────────────────────────────────────────────────── */
+/* ── RESET (Solusi A + B) ── */
 window.resetFilter = function() {
-  // 1) Bersihkan input tanggal
   document.getElementById('filterFrom').value = '';
   document.getElementById('filterTo').value   = '';
 
-  // 2) Kembalikan interval ke "Semua"
   currentInterval = 'all';
   document.querySelectorAll('.itv-btn').forEach(b => b.classList.remove('active'));
   const firstBtn = document.querySelector('.itv-btn');
   if (firstBtn) firstBtn.classList.add('active');
 
-  // 3) Update label
   const sub = document.getElementById('sectionSub');
   if (sub) sub.textContent = 'Menampilkan semua data';
 
-  // 4) Tampilkan spinner dulu — beri tahu user tombol bekerja
   showLoading(true, currentTab);
 
-  // 5) requestAnimationFrame + setTimeout(0) → biarkan browser
-  //    menggambar spinner dulu, baru mulai render tabel.
   requestAnimationFrame(() => {
     setTimeout(() => {
       const src = currentTab === 'A' ? allRowsA : allRowsB;
@@ -662,7 +632,9 @@ window.resetFilter = function() {
 };
 
 /* ─────────────────────────────────────────────────────────
-   HAPUS SEMUA
+   HAPUS SEMUA — Solusi 2 (chunked)
+   Ambil dulu semua key, lalu hapus per potongan (DELETE_CHUNK).
+   Ini menghindari error WRITE_TOO_BIG saat data > 16 MB.
    ───────────────────────────────────────────────────────── */
 window.deleteAll = async function() {
   const step1 = confirm(
@@ -680,21 +652,50 @@ window.deleteAll = async function() {
   }
 
   showLoading(true, currentTab);
-  try {
-    await remove(ref(db, `log${currentTab}`));
+  const sub = document.getElementById('sectionSub');
 
+  try {
+    // 1) Ambil semua key dulu (key saja, ringan)
+    const logRef = query(ref(db, `log${currentTab}`), orderByKey());
+    const snap   = await get(logRef);
+
+    if (!snap.exists()) {
+      alert('Node sudah kosong. Tidak ada data untuk dihapus.');
+      return;
+    }
+
+    const keys = [];
+    snap.forEach(child => keys.push(child.key));
+
+    // 2) Hapus per potongan (chunk)
+    const total   = keys.length;
+    let   deleted = 0;
+
+    for (let i = 0; i < total; i += DELETE_CHUNK) {
+      const chunk   = keys.slice(i, i + DELETE_CHUNK);
+      const updates = {};
+      chunk.forEach(k => { updates[k] = null; });
+
+      await update(ref(db, `log${currentTab}`), updates);
+      deleted += chunk.length;
+
+      if (sub) sub.textContent = `Menghapus… ${deleted.toLocaleString('id-ID')}/${total.toLocaleString('id-ID')}`;
+
+      // Beri kesempatan UI bernapas
+      await new Promise(r => setTimeout(r, 0));
+    }
+
+    // 3) Kosongkan state & tabel
     if (currentTab === 'A') { allRowsA = []; loadedA = true; }
     else                    { allRowsB = []; loadedB = true; }
 
-    const sub = document.getElementById('sectionSub');
     if (sub) sub.textContent = 'Riwayat kosong';
 
     renderTable([]);
-    alert(`Seluruh riwayat Inkubator ${currentTab} berhasil dihapus.`);
+    alert(`Berhasil menghapus ${total.toLocaleString('id-ID')} catatan dari Inkubator ${currentTab}.`);
   } catch (err) {
     console.error('deleteAll error:', err);
-    alert('Gagal menghapus: ' + err.message +
-          '\n\nPastikan Firebase Rules mengizinkan write pada node "log' + currentTab + '".');
+    alert('Gagal menghapus: ' + err.message);
   } finally {
     showLoading(false);
   }
@@ -728,10 +729,7 @@ function showLoading(show, inkubator) {
   if (detail) detail.textContent = show && inkubator ? `(Inkubator ${inkubator})` : '';
 }
 
-/* ── EXPORT EXCEL (SheetJS via CDN) ──
-   Ekspor SELALU mengikuti filteredRows (data lengkap di memori),
-   bukan yang terlihat di tabel. Jadi walau tabel hanya menampilkan
-   1000 baris, Excel tetap berisi semua baris pada rentang/filter. */
+/* ── EXPORT EXCEL (SheetJS via CDN) ── */
 window.exportExcel = function() {
   if (!filteredRows || filteredRows.length === 0) {
     alert('Tidak ada data untuk diekspor.');
