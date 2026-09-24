@@ -401,7 +401,7 @@ onValue(ref(db,'inkubatorB/kelembapan'), s => uv('kelembapanB', s.val()));
 onValue(ref(db,'inkubatorB/relay/lampu'),   s => setRelay('lampuB',   s.val()));
 onValue(ref(db,'inkubatorB/relay/pompa'),   s => setRelay('pompaB',   s.val()));
 onValue(ref(db,'inkubatorB/relay/fan'),     s => setRelay('fanB',     s.val()));
-/* Listener peltier untuk Inkubator B dihapus — pill-nya juga dihapus dari HTML. */
+/* Listener peltier Inkubator B dihapus — pill-nya juga sudah dihapus. */
 
 /* ─────────────────────────────────────────────────────────
    RENDER HEADER TABEL
@@ -478,12 +478,10 @@ loadLog('A');
 /* ── RENDER TABLE ── */
 function renderTable(rows) {
   const tbody     = document.getElementById('historyBody');
-  const showCol7  = currentTab === 'A';       // Peltier hanya untuk A
+  const showCol7  = currentTab === 'A';
   const totalCols = showCol7 ? 9 : 8;
 
-  // Bangun ulang header sesuai tab aktif
   renderTableHead();
-
   filteredRows = rows;
 
   if (rows.length === 0) {
@@ -521,7 +519,6 @@ function renderTable(rows) {
       slotBadge = `<span class="slot-label">Slot ${fixHh}:${mm}</span>`;
     }
 
-    // Kolom Peltier hanya dirender untuk Inkubator A
     const col7Td = showCol7 ? `<td>${badge(r.peltier)}</td>` : '';
 
     return `<tr>
@@ -593,21 +590,41 @@ window.applyFilter = function() {
   renderTable(samplingInterval(src, currentInterval));
 };
 
-/* ── RESET ── */
+/* ─────────────────────────────────────────────────────────
+   RESET — dengan feedback spinner (Solusi B)
+   Urutan:
+     1) Bersihkan input tanggal + set interval ke "Semua"
+     2) Tampilkan spinner → beri tahu browser ini sedang bekerja
+     3) Pakai requestAnimationFrame + setTimeout(0) supaya browser
+        sempat menggambar spinner dulu, baru mulai render tabel.
+        Ini mencegah tombol terasa "hang".
+   ───────────────────────────────────────────────────────── */
 window.resetFilter = function() {
+  // 1) Bersihkan input tanggal
   document.getElementById('filterFrom').value = '';
   document.getElementById('filterTo').value   = '';
 
+  // 2) Kembalikan interval ke "Semua"
   currentInterval = 'all';
   document.querySelectorAll('.itv-btn').forEach(b => b.classList.remove('active'));
   const firstBtn = document.querySelector('.itv-btn');
   if (firstBtn) firstBtn.classList.add('active');
 
+  // 3) Update label
   const sub = document.getElementById('sectionSub');
   if (sub) sub.textContent = 'Menampilkan semua data';
 
-  const src = currentTab === 'A' ? allRowsA : allRowsB;
-  renderTable(src);
+  // 4) Tampilkan spinner dulu
+  showLoading(true, currentTab);
+
+  // 5) Beri browser kesempatan menggambar spinner sebelum render berat
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      const src = currentTab === 'A' ? allRowsA : allRowsB;
+      renderTable(src);
+      showLoading(false);
+    }, 0);
+  });
 };
 
 /* ─────────────────────────────────────────────────────────
@@ -655,7 +672,6 @@ window.switchTab = function(tab, btn) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
 
-  // Langsung perbarui header agar kolom Peltier hilang/muncul seketika
   renderTableHead();
 
   document.getElementById('filterFrom').value = '';
