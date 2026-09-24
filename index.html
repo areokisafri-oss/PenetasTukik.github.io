@@ -93,6 +93,7 @@
     .metric-unit { font-size:12px; color:var(--muted); margin-left:3px; }
 
     .relays { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+    .relays-3 { grid-template-columns:repeat(3,1fr); }
     .relay-pill {
       border-radius:8px; padding:7px 6px; text-align:center;
       font-size:11px; font-weight:600; letter-spacing:.3px;
@@ -214,6 +215,7 @@
       main { padding:16px; }
       .cards-row { grid-template-columns:1fr; }
       .relays { grid-template-columns:repeat(2,1fr); }
+      .relays-3 { grid-template-columns:repeat(3,1fr); }
       header { padding:14px 16px; }
     }
   </style>
@@ -260,7 +262,7 @@
       <div class="card-footer">Diperbarui: <span id="lastUpdateA">--</span></div>
     </div>
 
-    <!-- Inkubator B -->
+    <!-- Inkubator B (tanpa Peltier) -->
     <div class="card card-b">
       <div class="card-header">
         <div class="card-dot"></div>
@@ -277,10 +279,9 @@
           <div class="metric-value"><span id="kelembapanB">--</span><span class="metric-unit">%</span></div>
         </div>
       </div>
-      <div class="relays">
+      <div class="relays relays-3">
         <div class="relay-pill off" id="lampuB">Lampu</div>
         <div class="relay-pill off" id="pompaB">Pompa</div>
-        <div class="relay-pill off" id="peltierB">Peltier</div>
         <div class="relay-pill off" id="fanB">Fan</div>
       </div>
       <div class="card-footer">Diperbarui: <span id="lastUpdateB">--</span></div>
@@ -399,15 +400,13 @@ onValue(ref(db,'inkubatorB/suhu'),       s => { uv('suhuB', s.val()); uv('lastUp
 onValue(ref(db,'inkubatorB/kelembapan'), s => uv('kelembapanB', s.val()));
 onValue(ref(db,'inkubatorB/relay/lampu'),   s => setRelay('lampuB',   s.val()));
 onValue(ref(db,'inkubatorB/relay/pompa'),   s => setRelay('pompaB',   s.val()));
-onValue(ref(db,'inkubatorB/relay/peltier'), s => setRelay('peltierB', s.val()));
 onValue(ref(db,'inkubatorB/relay/fan'),     s => setRelay('fanB',     s.val()));
+/* Listener peltier untuk Inkubator B dihapus — pill-nya juga dihapus dari HTML. */
 
 /* ─────────────────────────────────────────────────────────
    RENDER HEADER TABEL
    - Inkubator A → 9 kolom (termasuk Peltier)
    - Inkubator B → 8 kolom (tanpa Peltier)
-   Header dibangun ulang setiap tab berubah, jadi kolom Peltier
-   benar-benar tidak ada di DOM saat tab B aktif.
    ───────────────────────────────────────────────────────── */
 function renderTableHead() {
   const thead = document.getElementById('tableHead');
@@ -696,8 +695,6 @@ window.exportExcel = function() {
   }
 
   function doExport() {
-    // Kolom Peltier hanya ada di Inkubator A.
-    // Untuk Inkubator B, kolom ini tidak diikutsertakan dalam Excel.
     const isA = currentTab === 'A';
     const header = isA
       ? ['No','Waktu','Suhu (°C)','Kelembapan (%)','ADC','Lampu','Pompa','Peltier','Fan']
