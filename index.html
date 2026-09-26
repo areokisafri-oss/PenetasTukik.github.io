@@ -64,16 +64,6 @@
     #conn-badge.online .dot { animation: blink 2s infinite; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
 
-    .device-status {
-      display:flex; align-items:center; gap:6px;
-      font-size:11px; font-weight:600; margin-left:auto;
-      padding:4px 10px; border-radius:99px; border:1px solid transparent;
-    }
-    .device-status.online  { background:#1a2e25; color:var(--accent); border-color:#1f4a38; }
-    .device-status.offline { background:#2e1a1a; color:var(--danger); border-color:#4a1f1f; }
-    .device-status .status-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
-    .device-status.online .status-dot { animation: blink 2s infinite; }
-
     main { padding: 28px 32px; max-width: 1280px; margin: 0 auto; }
 
     .cards-row {
@@ -260,7 +250,7 @@
       <div class="card-header">
         <div class="card-dot"></div>
         <span class="card-title">Inkubator A</span>
-        <span class="device-status offline" id="statusA"><span class="status-dot"></span><span class="status-text">Menghubungkan...</span></span>
+        <span style="font-size:11px;color:var(--muted);margin-left:auto;">LIVE</span>
       </div>
       <div class="metrics">
         <div class="metric">
@@ -286,7 +276,7 @@
       <div class="card-header">
         <div class="card-dot"></div>
         <span class="card-title">Inkubator B</span>
-        <span class="device-status offline" id="statusB"><span class="status-dot"></span><span class="status-text">Menghubungkan...</span></span>
+        <span style="font-size:11px;color:var(--muted);margin-left:auto;">LIVE</span>
       </div>
       <div class="metrics">
         <div class="metric">
@@ -407,44 +397,15 @@ function setRelay(id, state) {
   el.className = 'relay-pill ' + (state ? 'on' : 'off');
 }
 
-/* ── STATUS KONEKSI ALAT (berdasarkan kapan data terakhir masuk) ── */
-let lastEpochA = null, lastEpochB = null;
-// Alat mengirim tiap 1 detik → threshold 5 detik: cukup ketat untuk deteksi cepat,
-// tapi tetap toleran terhadap jitter/delay jaringan wajar.
-const OFFLINE_THRESHOLD_SEC = 5;
-
-function updateDeviceStatus(tab) {
-  const epoch = tab === 'A' ? lastEpochA : lastEpochB;
-  const el = document.getElementById('status' + tab);
-  if (!el) return;
-  const now = Date.now() / 1000;
-  const isOnline = epoch !== null && (now - epoch) <= OFFLINE_THRESHOLD_SEC;
-  el.className = 'device-status ' + (isOnline ? 'online' : 'offline');
-  el.querySelector('.status-text').textContent = isOnline ? 'Terhubung' : 'Terputus';
-}
-
-// Cek berkala tiap 1 detik, karena tanpa data baru pun status harus berubah jadi "Terputus"
-setInterval(() => { updateDeviceStatus('A'); updateDeviceStatus('B'); }, 1000);
-
 /* ── LIVE LISTENERS ── */
-onValue(ref(db,'inkubatorA/suhu'), s => {
-  uv('suhuA', s.val());
-  uv('lastUpdateA', fmtWIB());
-  lastEpochA = Date.now() / 1000;
-  updateDeviceStatus('A');
-});
+onValue(ref(db,'inkubatorA/suhu'), s => { uv('suhuA', s.val()); uv('lastUpdateA', fmtWIB()); });
 onValue(ref(db,'inkubatorA/kelembapan'), s => uv('kelembapanA', s.val()));
 onValue(ref(db,'inkubatorA/relay/lampu'),   s => setRelay('lampuA',   s.val()));
 onValue(ref(db,'inkubatorA/relay/pompa'),   s => setRelay('pompaA',   s.val()));
 onValue(ref(db,'inkubatorA/relay/peltier'), s => setRelay('peltierA', s.val()));
 onValue(ref(db,'inkubatorA/relay/fan'),     s => setRelay('fanA',     s.val()));
 
-onValue(ref(db,'inkubatorB/suhu'), s => {
-  uv('suhuB', s.val());
-  uv('lastUpdateB', fmtWIB());
-  lastEpochB = Date.now() / 1000;
-  updateDeviceStatus('B');
-});
+onValue(ref(db,'inkubatorB/suhu'), s => { uv('suhuB', s.val()); uv('lastUpdateB', fmtWIB()); });
 onValue(ref(db,'inkubatorB/kelembapan'), s => uv('kelembapanB', s.val()));
 onValue(ref(db,'inkubatorB/relay/lampu'),   s => setRelay('lampuB',   s.val()));
 onValue(ref(db,'inkubatorB/relay/pompa'),   s => setRelay('pompaB',   s.val()));
