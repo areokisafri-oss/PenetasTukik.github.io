@@ -51,20 +51,28 @@
     header h1 { font-size: 18px; font-weight: 600; letter-spacing: -.3px; }
     header .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
     .spacer { flex: 1; }
+
     #conn-badge {
       font-size: 12px; font-weight: 500;
       padding: 5px 12px; border-radius: 99px;
-      background: #1a2e25; color: var(--accent);
-      border: 1px solid #1f4a38;
       display: flex; align-items: center; gap: 6px;
+      border: 1px solid transparent;
     }
-    #conn-badge::before {
-      content: '';
-      width: 7px; height: 7px; border-radius: 50%;
-      background: var(--accent);
-      animation: blink 2s infinite;
-    }
+    #conn-badge.online  { background:#1a2e25; color:var(--accent); border-color:#1f4a38; }
+    #conn-badge.offline { background:#2e1a1a; color:var(--danger); border-color:#4a1f1f; }
+    #conn-badge .dot { width:7px; height:7px; border-radius:50%; background:currentColor; }
+    #conn-badge.online .dot { animation: blink 2s infinite; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    .device-status {
+      display:flex; align-items:center; gap:6px;
+      font-size:11px; font-weight:600; margin-left:auto;
+      padding:4px 10px; border-radius:99px; border:1px solid transparent;
+    }
+    .device-status.online  { background:#1a2e25; color:var(--accent); border-color:#1f4a38; }
+    .device-status.offline { background:#2e1a1a; color:var(--danger); border-color:#4a1f1f; }
+    .device-status .status-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+    .device-status.online .status-dot { animation: blink 2s infinite; }
 
     main { padding: 28px 32px; max-width: 1280px; margin: 0 auto; }
 
@@ -240,7 +248,7 @@
     <div class="sub">Sistem Monitoring IoT Real-time</div>
   </div>
   <div class="spacer"></div>
-  <div id="conn-badge">Terhubung</div>
+  <div id="conn-badge" class="offline"><span class="dot"></span><span class="label">Menghubungkan...</span></div>
 </header>
 
 <main>
@@ -252,7 +260,7 @@
       <div class="card-header">
         <div class="card-dot"></div>
         <span class="card-title">Inkubator A</span>
-        <span style="font-size:11px;color:var(--muted);margin-left:auto;">LIVE</span>
+        <span class="device-status offline" id="statusA"><span class="status-dot"></span><span class="status-text">Menghubungkan...</span></span>
       </div>
       <div class="metrics">
         <div class="metric">
@@ -278,7 +286,7 @@
       <div class="card-header">
         <div class="card-dot"></div>
         <span class="card-title">Inkubator B</span>
-        <span style="font-size:11px;color:var(--muted);margin-left:auto;">LIVE</span>
+        <span class="device-status offline" id="statusB"><span class="status-dot"></span><span class="status-text">Menghubungkan...</span></span>
       </div>
       <div class="metrics">
         <div class="metric">
@@ -379,8 +387,8 @@ let currentInterval = 'all';
 let loadedA         = false;
 let loadedB         = false;
 
-/* Batas baris yang digambar ke DOM */
-const MAX_RENDER = 1000;
+/* Batas baris yang digambar ke DOM (bukan batas data yang diambil) */
+const MAX_RENDER = 10000;
 
 /* ── LIVE CARD HELPERS ── */
 function uv(id, val, suf = '') {
@@ -399,19 +407,57 @@ function setRelay(id, state) {
   el.className = 'relay-pill ' + (state ? 'on' : 'off');
 }
 
+/* ── STATUS KONEKSI ALAT (berdasarkan kapan data terakhir masuk) ── */
+let lastEpochA = null, lastEpochB = null;
+// Alat mengirim tiap 1 detik → threshold 5 detik: cukup ketat untuk deteksi cepat,
+// tapi tetap toleran terhadap jitter/delay jaringan wajar.
+const OFFLINE_THRESHOLD_SEC = 5;
+
+function updateDeviceStatus(tab) {
+  const epoch = tab === 'A' ? lastEpochA : lastEpochB;
+  const el = document.getElementById('status' + tab);
+  if (!el) return;
+  const now = Date.now() / 1000;
+  const isOnline = epoch !== null && (now - epoch) <= OFFLINE_THRESHOLD_SEC;
+  el.className = 'device-status ' + (isOnline ? 'online' : 'offline');
+  el.querySelector('.status-text').textContent = isOnline ? 'Terhubung' : 'Terputus';
+}
+
+// Cek berkala tiap 1 detik, karena tanpa data baru pun status harus berubah jadi "Terputus"
+setInterval(() => { updateDeviceStatus('A'); updateDeviceStatus('B'); }, 1000);
+
 /* ── LIVE LISTENERS ── */
-onValue(ref(db,'inkubatorA/suhu'),        s => { uv('suhuA', s.val()); uv('lastUpdateA', fmtWIB()); });
+onValue(ref(db,'inkubatorA/suhu'), s => {
+  uv('suhuA', s.val());
+  uv('lastUpdateA', fmtWIB());
+  lastEpochA = Date.now() / 1000;
+  updateDeviceStatus('A');
+});
 onValue(ref(db,'inkubatorA/kelembapan'), s => uv('kelembapanA', s.val()));
 onValue(ref(db,'inkubatorA/relay/lampu'),   s => setRelay('lampuA',   s.val()));
 onValue(ref(db,'inkubatorA/relay/pompa'),   s => setRelay('pompaA',   s.val()));
 onValue(ref(db,'inkubatorA/relay/peltier'), s => setRelay('peltierA', s.val()));
 onValue(ref(db,'inkubatorA/relay/fan'),     s => setRelay('fanA',     s.val()));
 
-onValue(ref(db,'inkubatorB/suhu'),        s => { uv('suhuB', s.val()); uv('lastUpdateB', fmtWIB()); });
+onValue(ref(db,'inkubatorB/suhu'), s => {
+  uv('suhuB', s.val());
+  uv('lastUpdateB', fmtWIB());
+  lastEpochB = Date.now() / 1000;
+  updateDeviceStatus('B');
+});
 onValue(ref(db,'inkubatorB/kelembapan'), s => uv('kelembapanB', s.val()));
 onValue(ref(db,'inkubatorB/relay/lampu'),   s => setRelay('lampuB',   s.val()));
 onValue(ref(db,'inkubatorB/relay/pompa'),   s => setRelay('pompaB',   s.val()));
 onValue(ref(db,'inkubatorB/relay/fan'),     s => setRelay('fanB',     s.val()));
+
+/* ── STATUS KONEKSI BROWSER ↔ FIREBASE ── */
+onValue(ref(db, '.info/connected'), (snap) => {
+  const badge = document.getElementById('conn-badge');
+  const label = badge.querySelector('.label');
+  const isOnline = snap.val() === true;
+  badge.className = isOnline ? 'online' : 'offline';
+  label.textContent = isOnline ? 'Terhubung' : 'Terputus';
+});
 
 /* ── RENDER HEADER TABEL ── */
 function renderTableHead() {
@@ -433,24 +479,38 @@ function renderTableHead() {
     </tr>`;
 }
 
-/* ── LOAD LOG (Memakai REST API Ringan) ── */
+/* ── LOAD LOG (Mengambil SELURUH riwayat secara bertahap/pagination) ── */
 async function loadLog(inkubator) {
   showLoading(true, inkubator);
   const detail = document.getElementById('loadingDetail');
-  
+
+  const baseUrl   = `${firebaseConfig.databaseURL}/log${inkubator}.json`;
+  const rows      = [];
+  let cursorKey   = null;   // key (epoch) terakhir dari batch sebelumnya
+  const chunkSize = 1000;   // ukuran halaman per fetch ke Firebase
+
   try {
-    if (detail) detail.textContent = `(Membaca data Inkubator ${inkubator}...)`;
-    
-    // Ambil 1000 item terbaru saja agar tampilan cepat
-    const dataRes = await fetch(`${firebaseConfig.databaseURL}/log${inkubator}.json?orderBy="$key"&limitToLast=1000`);
-    if (!dataRes.ok) throw new Error(`HTTP Status ${dataRes.status}`);
+    while (true) {
+      let url = `${baseUrl}?orderBy="$key"&limitToFirst=${chunkSize}`;
+      if (cursorKey !== null) {
+        url += `&startAt=${cursorKey}`; // key numerik (epoch), tanpa tanda kutip
+      }
 
-    const dataObj = await dataRes.json();
-    const rows = [];
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP Status ${res.status}`);
+      const obj = await res.json();
 
-    if (dataObj && typeof dataObj === 'object') {
-      Object.keys(dataObj).forEach(key => {
-        const d = dataObj[key];
+      if (!obj || typeof obj !== 'object' || Object.keys(obj).length === 0) break;
+
+      let keys = Object.keys(obj).sort((a, b) => Number(a) - Number(b));
+
+      // startAt bersifat inklusif → key pertama = cursor sebelumnya, buang biar tidak dobel
+      if (cursorKey !== null && keys[0] === cursorKey) {
+        keys = keys.slice(1);
+      }
+
+      keys.forEach(key => {
+        const d = obj[key];
         rows.push({
           epoch:      Number(key),
           timestamp:  d.timestamp  || '',
@@ -463,8 +523,17 @@ async function loadLog(inkubator) {
           fan:        d.fan        ?? false
         });
       });
-      rows.reverse();
+
+      if (detail) detail.textContent = `(Inkubator ${inkubator}: ${rows.length.toLocaleString('id-ID')} baris dimuat...)`;
+
+      // Halaman terakhir jika hasil dari Firebase < chunkSize
+      if (Object.keys(obj).length < chunkSize) break;
+
+      cursorKey = keys.length ? keys[keys.length - 1] : cursorKey;
+      if (keys.length === 0) break; // safety: hindari infinite loop
     }
+
+    rows.sort((a, b) => b.epoch - a.epoch); // terbaru di atas
 
     if (inkubator === 'A') { allRowsA = rows; loadedA = true; }
     else                   { allRowsB = rows; loadedB = true; }
